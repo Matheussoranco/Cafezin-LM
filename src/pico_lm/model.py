@@ -3,6 +3,7 @@
 The same architecture family as Llama/Mistral, scaled down. Supports an
 incremental KV cache for O(1)-per-token generation.
 """
+
 from __future__ import annotations
 
 import math
@@ -27,7 +28,9 @@ class RMSNorm(nn.Module):
         return (x * self.weight.float()).to(dtype)
 
 
-def precompute_rope(head_dim: int, max_seq_len: int, theta: float) -> tuple[torch.Tensor, torch.Tensor]:
+def precompute_rope(
+    head_dim: int, max_seq_len: int, theta: float
+) -> tuple[torch.Tensor, torch.Tensor]:
     inv_freq = 1.0 / (theta ** (torch.arange(0, head_dim, 2).float() / head_dim))
     t = torch.arange(max_seq_len).float()
     freqs = torch.outer(t, inv_freq)  # (T, head_dim/2)
@@ -46,13 +49,21 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
 class KVCache:
     """Preallocated per-layer key/value cache for incremental decoding."""
 
-    def __init__(self, cfg: ModelConfig, batch_size: int, device: torch.device | str, dtype: torch.dtype) -> None:
+    def __init__(
+        self,
+        cfg: ModelConfig,
+        batch_size: int,
+        device: torch.device | str,
+        dtype: torch.dtype,
+    ) -> None:
         shape = (cfg.n_layers, batch_size, cfg.n_kv_heads, cfg.max_seq_len, cfg.head_dim)
         self.k = torch.zeros(shape, device=device, dtype=dtype)
         self.v = torch.zeros(shape, device=device, dtype=dtype)
         self.pos = 0
 
-    def update(self, layer: int, k: torch.Tensor, v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def update(
+        self, layer: int, k: torch.Tensor, v: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         t = k.size(2)
         self.k[layer, :, :, self.pos : self.pos + t] = k
         self.v[layer, :, :, self.pos : self.pos + t] = v
@@ -185,7 +196,9 @@ class Transformer(nn.Module):
         t = idx.size(1)
         pos = cache.pos if cache is not None else 0
         if pos + t > self.cfg.max_seq_len:
-            raise ValueError(f"sequence length {pos + t} exceeds max_seq_len {self.cfg.max_seq_len}")
+            raise ValueError(
+                f"sequence length {pos + t} exceeds max_seq_len {self.cfg.max_seq_len}"
+            )
         cos = self.rope_cos[pos : pos + t]
         sin = self.rope_sin[pos : pos + t]
 
@@ -198,7 +211,9 @@ class Transformer(nn.Module):
 
         if targets is not None:
             logits = self.lm_head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1)
+            loss = F.cross_entropy(
+                logits.view(-1, logits.size(-1)), targets.reshape(-1), ignore_index=-1
+            )
             return logits, loss
         return self.lm_head(x), None
 
@@ -235,7 +250,9 @@ class Transformer(nn.Module):
                     seen = out[b].unique()
                     penalized = step_logits[b, seen]
                     step_logits[b, seen] = torch.where(
-                        penalized > 0, penalized / repetition_penalty, penalized * repetition_penalty
+                        penalized > 0,
+                        penalized / repetition_penalty,
+                        penalized * repetition_penalty,
                     )
 
             if temperature <= 0:
@@ -243,7 +260,8 @@ class Transformer(nn.Module):
             else:
                 step_logits = step_logits / temperature
                 if top_k is not None and top_k > 0:
-                    kth = torch.topk(step_logits, min(top_k, step_logits.size(-1)), dim=-1).values[:, -1:]
+                    k = min(top_k, step_logits.size(-1))
+                    kth = torch.topk(step_logits, k, dim=-1).values[:, -1:]
                     step_logits = step_logits.masked_fill(step_logits < kth, float("-inf"))
                 if top_p is not None and 0 < top_p < 1:
                     sorted_logits, sorted_idx = torch.sort(step_logits, descending=True, dim=-1)

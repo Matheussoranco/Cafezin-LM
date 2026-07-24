@@ -1,8 +1,11 @@
 """Single-GPU training loop: AMP, grad accumulation, cosine LR, checkpoints, KD."""
+
 from __future__ import annotations
 
+import contextlib
 import json
 import math
+import shutil
 import time
 from pathlib import Path
 
@@ -26,8 +29,15 @@ def pick_dtype(device: str) -> torch.dtype:
     return torch.float32
 
 
+def autocast_ctx(device: str, dtype: torch.dtype):
+    """Autocast on an accelerator; a no-op on CPU (fp32 autocast only warns)."""
+    if device == "cpu" or dtype == torch.float32:
+        return contextlib.nullcontext()
+    return torch.autocast(device_type=device.split(":")[0], dtype=dtype)
+
+
 def cosine_lr(step: int, cfg: TrainConfig) -> float:
-    if step < cfg.warmup_steps:
+    if cfg.warmup_steps > 0 and step < cfg.warmup_steps:
         return cfg.lr * (step + 1) / cfg.warmup_steps
     if step >= cfg.max_steps:
         return cfg.min_lr
@@ -37,7 +47,7 @@ def cosine_lr(step: int, cfg: TrainConfig) -> float:
 
 def make_optimizer(model: Transformer, cfg: TrainConfig, device: str) -> torch.optim.AdamW:
     decay, no_decay = [], []
-    for name, p in model.named_parameters():
+    for p in model.parameters():
         if not p.requires_grad:
             continue
         (decay if p.dim() >= 2 else no_decay).append(p)
@@ -52,16 +62,19 @@ def make_optimizer(model: Transformer, cfg: TrainConfig, device: str) -> torch.o
 
 @torch.no_grad()
 def estimate_loss(
-    model: Transformer, datasets: dict[str, TokenDataset], cfg: TrainConfig, device: str, dtype: torch.dtype
+    model: Transformer,
+    datasets: dict[str, TokenDataset],
+    cfg: TrainConfig,
+    device: str,
+    dtype: torch.dtype,
 ) -> dict[str, float]:
     model.eval()
     out = {}
-    autocast = torch.autocast(device_type=device.split(":")[0], dtype=dtype, enabled=device != "cpu")
     for split, ds in datasets.items():
         losses = torch.zeros(cfg.eval_iters)
         for i in range(cfg.eval_iters):
             x, y = ds.get_batch(cfg.batch_size, cfg.seq_len, device)
-            with autocast:
+            with autocast_ctx(device, dtype):
                 _, loss = model(x, y)
             losses[i] = loss.item()
         out[split] = losses.mean().item()
@@ -69,7 +82,9 @@ def estimate_loss(
     return out
 
 
-def kd_loss(student_logits: torch.Tensor, teacher_logits: torch.Tensor, temperature: float) -> torch.Tensor:
+def kd_loss(
+    student_logits: torch.Tensor, teacher_logits: torch.Tensor, temperature: float
+) -> torch.Tensor:
     t = temperature
     return (
         F.kl_div(
@@ -118,6 +133,22 @@ def load_model(ckpt_path: str | Path, device: str = "cpu") -> tuple[Transformer,
     return model, ckpt
 
 
+def _stage_tokenizer(tokenizer_path: str | None, data_dir: Path, out_dir: Path) -> str | None:
+    """Copy the tokenizer next to the checkpoints; return an absolute path to it.
+
+    Checkpoints record this path, so `generate`/`chat` keep working after the
+    data directory is deleted or the process runs from another directory.
+    """
+    src = Path(tokenizer_path) if tokenizer_path else data_dir / "tokenizer.json"
+    if not src.exists():
+        print(f"warning: tokenizer {src} not found; `generate` will need --tokenizer")
+        return str(src.resolve())
+    dst = out_dir / "tokenizer.json"
+    if src.resolve() != dst.resolve():
+        shutil.copyfile(src, dst)
+    return str(dst.resolve())
+
+
 def train(
     model_cfg: ModelConfig,
     train_cfg: TrainConfig,
@@ -136,6 +167,7 @@ def train(
         torch.backends.cudnn.allow_tf32 = True
 
     data_dir, out_dir = Path(data_dir), Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     meta = json.loads((data_dir / "meta.json").read_text(encoding="utf-8"))
     if meta["vocab_size"] > model_cfg.vocab_size:
         raise ValueError(
@@ -147,14 +179,30 @@ def train(
         "val": TokenDataset(data_dir / "val.bin"),
     }
 
+    # Keep a copy of the tokenizer beside the checkpoints and record an absolute
+    # path, so `generate`/`chat` work from any working directory later on.
+    tokenizer_path = _stage_tokenizer(tokenizer_path, data_dir, out_dir)
+
     step, best_val = 0, float("inf")
-    if resume and (out_dir / "last.pt").exists():
-        model, ckpt = load_model(out_dir / "last.pt", device)
+    ckpt_path = out_dir / "last.pt"
+    if resume and ckpt_path.exists():
+        model, ckpt = load_model(ckpt_path, device)
         optimizer = make_optimizer(model, train_cfg, device)
         optimizer.load_state_dict(ckpt["optimizer"])
         step, best_val = ckpt["step"], ckpt.get("best_val", float("inf"))
+        # the weights come from the checkpoint, so its architecture is the truth;
+        # writing the caller's config here would silently desync cfg from weights
+        model_cfg = model.cfg
         print(f"resumed from step {step} (best val {best_val:.4f})")
+        if step >= train_cfg.max_steps:
+            print(
+                f"already at step {step} >= max_steps {train_cfg.max_steps}; "
+                "nothing to do (raise --max-steps to continue)"
+            )
+            return best_val
     else:
+        if resume:
+            print(f"--resume requested but {ckpt_path} does not exist; starting from scratch")
         model = Transformer(model_cfg).to(device)
         optimizer = make_optimizer(model, train_cfg, device)
     model.train()
@@ -167,19 +215,20 @@ def train(
         teacher.eval()
         for p in teacher.parameters():
             p.requires_grad_(False)
-        print(f"distilling from teacher: {teacher.num_params()/1e6:.1f}M params")
+        print(f"distilling from teacher: {teacher.num_params() / 1e6:.1f}M params")
 
     if train_cfg.compile:
         model = torch.compile(model)
 
     n_params = sum(p.numel() for p in model.parameters())
     tokens_per_step = train_cfg.batch_size * train_cfg.grad_accum_steps * train_cfg.seq_len
-    print(f"device={device} dtype={dtype} params={n_params/1e6:.1f}M tokens/step={tokens_per_step:,}")
+    print(
+        f"device={device} dtype={dtype} params={n_params / 1e6:.1f}M "
+        f"tokens/step={tokens_per_step:,}"
+    )
 
     scaler = torch.amp.GradScaler(enabled=(dtype == torch.float16))
-    autocast = torch.autocast(device_type=device.split(":")[0], dtype=dtype, enabled=device != "cpu")
     log_path = out_dir / "log.csv"
-    out_dir.mkdir(parents=True, exist_ok=True)
     if not log_path.exists():
         log_path.write_text("step,loss,lr,tok_per_s\n", encoding="utf-8")
 
@@ -194,7 +243,7 @@ def train(
         loss_accum = 0.0
         for _ in range(train_cfg.grad_accum_steps):
             x, y = datasets["train"].get_batch(train_cfg.batch_size, train_cfg.seq_len, device)
-            with autocast:
+            with autocast_ctx(device, dtype):
                 logits, ce = model(x, y)
                 loss = ce
                 if teacher is not None:
@@ -227,10 +276,32 @@ def train(
             losses = estimate_loss(model, datasets, train_cfg, device, dtype)
             print(f"eval @ {step}: train {losses['train']:.4f} | val {losses['val']:.4f}")
             raw = getattr(model, "_orig_mod", model)
-            save_checkpoint(out_dir / "last.pt", raw, optimizer, model_cfg, train_cfg, step, best_val, tokenizer_path)
-            if losses["val"] < best_val:
+            improved = losses["val"] < best_val
+            if improved:
                 best_val = losses["val"]
-                save_checkpoint(out_dir / "best.pt", raw, optimizer, model_cfg, train_cfg, step, best_val, tokenizer_path)
+            # best_val must be updated *before* last.pt is written, otherwise a
+            # resume reloads a stale best and can overwrite best.pt with a worse model
+            save_checkpoint(
+                out_dir / "last.pt",
+                raw,
+                optimizer,
+                model_cfg,
+                train_cfg,
+                step,
+                best_val,
+                tokenizer_path,
+            )
+            if improved:
+                save_checkpoint(
+                    out_dir / "best.pt",
+                    raw,
+                    optimizer,
+                    model_cfg,
+                    train_cfg,
+                    step,
+                    best_val,
+                    tokenizer_path,
+                )
                 print(f"  new best val {best_val:.4f} -> best.pt")
             t0 = time.time()
 

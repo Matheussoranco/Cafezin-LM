@@ -1,6 +1,6 @@
-# slm — a small, highly capable language model, trained and run locally
+# Pico-LM — a small, highly capable language model, trained and run locally
 
-A from-scratch small language model (SLM) stack in PyTorch, sized for a laptop GPU
+A from-scratch small language model stack in PyTorch, sized for a laptop GPU
 (tuned for an RTX 3050 6 GB). Same architecture family as Llama/Mistral, scaled down:
 
 - **Decoder-only transformer** — RMSNorm (pre-norm), rotary position embeddings (RoPE),
@@ -28,28 +28,37 @@ Capability at small scale comes from three levers, all supported here:
 ## Setup
 
 ```powershell
-cd C:\Users\mathe\Documents\Code\LLM
+cd C:\Users\mathe\Documents\Code\Pico-LM
 .venv\Scripts\activate            # venv has CUDA PyTorch installed
-pip install -e .[data,dev]
+pip install -e ".[data,dev]"
 ```
+
+The CLI is installed as `pico-lm`; the importable package is `pico_lm`.
 
 ## Quickstart: train on TinyStories (recommended first run)
 
 ```powershell
 # 1. Train a tokenizer (streams the dataset; ~2M docs)
-slm tokenizer --hf roneneldan/TinyStories --vocab-size 16384 --out data\tokenizer.json --max-docs 500000
+pico-lm tokenizer --hf roneneldan/TinyStories --vocab-size 16384 --out data\tokenizer.json --max-docs 500000
 
-# 2. Tokenize into train/val memmaps
-slm prepare --hf roneneldan/TinyStories --tokenizer data\tokenizer.json --out data --max-docs 500000
+# 2. Tokenize into train/val memmaps (also copies the tokenizer into data\)
+pico-lm prepare --hf roneneldan/TinyStories --tokenizer data\tokenizer.json --out data --max-docs 500000
 
 # 3. Train (micro ≈ 22M params; a few hours on the 3050)
-slm train --preset micro --data data --out runs\micro --batch-size 32 --grad-accum-steps 2 --seq-len 512
+pico-lm train --preset micro --data data --out runs\micro --batch-size 32 --grad-accum-steps 2 --seq-len 512
 
 # 4. Generate
-slm generate --ckpt runs\micro\best.pt --prompt "Once upon a time"
+pico-lm generate --ckpt runs\micro\best.pt --prompt "Once upon a time"
 ```
 
-Or use your own text files: `--input corpus\*.txt` instead of `--hf ...`.
+Or use your own text files: `--input corpus\*.txt` instead of `--hf ...`. Local files are
+split into documents on blank lines.
+
+Training copies the tokenizer into the run directory, so `runs\micro\` is self-contained:
+`generate` and `chat` keep working even if `data\` is deleted.
+
+Interrupted? `--resume` continues from `<out>\last.pt` with the optimizer state, step
+counter and best-val bookkeeping intact — raise `--max-steps` to train further.
 
 ## Presets (16k vocab, sized for 6 GB VRAM)
 
@@ -62,41 +71,52 @@ Or use your own text files: `--input corpus\*.txt` instead of `--hf ...`.
 
 For `base` on 6 GB, use `--batch-size 8 --grad-accum-steps 8`.
 
+### Training flags
+
+`train` takes `--preset --data --out --tokenizer --resume --teacher --compile --seq-len
+--batch-size --grad-accum-steps --max-steps --lr --min-lr --warmup-steps --eval-interval
+--eval-iters --log-interval --seed`. Anything you leave out falls back to `TrainConfig`
+in `config.py`. `pico-lm train --help` is the authority.
+
 ## Distillation
 
 ```powershell
-slm train --preset base  --data data --out runs\base
-slm train --preset small --data data --out runs\small-kd --teacher runs\base\best.pt
+pico-lm train --preset base  --data data --out runs\base
+pico-lm train --preset small --data data --out runs\small-kd --teacher runs\base\best.pt
 ```
 
 ## Chat / SFT
 
 Fine-tune on conversations (JSONL, one `{"messages": [{"role": ..., "content": ...}]}` per line),
-then chat:
+then chat. Pass the pretraining tokenizer explicitly so the vocabulary matches:
 
 ```powershell
-slm prepare --chat-jsonl chats.jsonl --tokenizer data\tokenizer.json --out data_sft
-slm train --preset micro --data data_sft --out runs\micro-sft --resume   # start from a pretrained ckpt copied to runs\micro-sft\last.pt
-slm chat --ckpt runs\micro-sft\best.pt --system "You are a helpful assistant."
+pico-lm prepare --chat-jsonl chats.jsonl --tokenizer data\tokenizer.json --out data_sft
+copy runs\micro\best.pt runs\micro-sft\last.pt
+pico-lm train --preset micro --data data_sft --out runs\micro-sft --resume
+pico-lm chat --ckpt runs\micro-sft\best.pt --system "You are a helpful assistant."
 ```
 
 ## Other commands
 
 ```powershell
-slm info --ckpt runs\micro\best.pt          # params, config, training step
-slm quantize --ckpt runs\micro\best.pt --out runs\micro-int8.pt   # 4x smaller, CPU inference
+pico-lm info --ckpt runs\micro\best.pt          # params, config, training step
+pico-lm quantize --ckpt runs\micro\best.pt --out runs\micro-int8.pt   # 4x smaller, CPU inference
 ```
 
 ## Tests
 
 ```powershell
-pytest            # 20 tests: model math, KV-cache equivalence, tokenizer, data, end-to-end
+pytest                  # 22 fast tests: model math, KV-cache equivalence, tokenizer, data
+pytest -m slow          # 4 more: full tokenizer -> prepare -> train -> resume -> generate runs
+pytest -m ""            # everything (26)
+ruff check .
 ```
 
 ## Layout
 
 ```
-src/slm/
+src/pico_lm/
   config.py     presets + ModelConfig/TrainConfig
   model.py      Transformer (RMSNorm, RoPE, GQA, SwiGLU, KVCache, generate)
   tokenizer.py  byte-level BPE + chat template
@@ -104,5 +124,13 @@ src/slm/
   train.py      AMP training loop, cosine LR, checkpoints, distillation
   generate.py   completion + chat REPL
   export.py     int8 dynamic quantization
-  cli.py        the `slm` command
+  cli.py        the `pico-lm` command
 ```
+
+## License
+
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+— free to use, modify and share for any noncommercial purpose, provided you keep the
+attribution and license anything you share onward — including modified versions and
+models you train from this code — under these same terms (**ShareAlike**, i.e. copyleft).
+Commercial use requires a separate license. See [LICENSE](LICENSE).

@@ -1,4 +1,5 @@
 """Inference helpers: completion and an interactive chat REPL."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,28 +7,36 @@ from pathlib import Path
 import torch
 
 from .model import Transformer
-from .tokenizer import SLMTokenizer
+from .tokenizer import PicoTokenizer
 from .train import load_model, pick_device
 
 
 def load_for_inference(
     ckpt_path: str | Path, tokenizer_path: str | Path | None = None, device: str | None = None
-) -> tuple[Transformer, SLMTokenizer, str]:
+) -> tuple[Transformer, PicoTokenizer, str]:
     device = device or pick_device()
     model, ckpt = load_model(ckpt_path, device)
     model.eval()
-    tok_path = tokenizer_path or ckpt.get("tokenizer_path")
-    if not tok_path or not Path(tok_path).exists():
+    candidates = [
+        tokenizer_path,
+        ckpt.get("tokenizer_path"),
+        # training stages a copy beside the checkpoints; fall back to it when the
+        # recorded absolute path has moved (renamed folder, copied run dir, ...)
+        Path(ckpt_path).parent / "tokenizer.json",
+    ]
+    tok_path = next((c for c in candidates if c and Path(c).exists()), None)
+    if tok_path is None:
         raise FileNotFoundError(
-            "tokenizer not found; pass --tokenizer or keep tokenizer.json next to the data"
+            f"tokenizer not found for {ckpt_path}; pass --tokenizer, or keep "
+            "tokenizer.json next to the checkpoint"
         )
-    tokenizer = SLMTokenizer.load(tok_path)
+    tokenizer = PicoTokenizer.load(tok_path)
     return model, tokenizer, device
 
 
 def complete(
     model: Transformer,
-    tokenizer: SLMTokenizer,
+    tokenizer: PicoTokenizer,
     prompt: str,
     device: str,
     max_new_tokens: int = 200,
@@ -51,10 +60,16 @@ def complete(
         eos_id=tokenizer.eos_id,
         repetition_penalty=repetition_penalty,
     )
-    return tokenizer.decode(y[0, len(ids):].tolist())
+    return tokenizer.decode(y[0, len(ids) :].tolist())
 
 
-def chat_repl(model: Transformer, tokenizer: SLMTokenizer, device: str, system: str | None = None, **gen_kwargs) -> None:
+def chat_repl(
+    model: Transformer,
+    tokenizer: PicoTokenizer,
+    device: str,
+    system: str | None = None,
+    **gen_kwargs,
+) -> None:
     print("chat mode — type 'exit' to quit. (Meaningful replies require a chat-trained model.)")
     messages: list[dict[str, str]] = []
     if system:
@@ -70,5 +85,5 @@ def chat_repl(model: Transformer, tokenizer: SLMTokenizer, device: str, system: 
         prompt = tokenizer.format_chat(messages)
         reply = complete(model, tokenizer, prompt, device, **gen_kwargs)
         reply = reply.strip()
-        print(f"slm> {reply}")
+        print(f"pico> {reply}")
         messages.append({"role": "assistant", "content": reply})

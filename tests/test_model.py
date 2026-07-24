@@ -1,8 +1,8 @@
-import torch
 import pytest
+import torch
 
-from slm.config import ModelConfig
-from slm.model import KVCache, Transformer
+from pico_lm.config import ModelConfig
+from pico_lm.model import KVCache, Transformer
 
 
 @pytest.fixture(scope="module")

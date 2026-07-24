@@ -1,6 +1,6 @@
 import pytest
 
-from slm.tokenizer import ASSISTANT, EOS, SLMTokenizer, USER
+from pico_lm.tokenizer import ASSISTANT, EOS, USER, PicoTokenizer
 
 CORPUS = [
     "The quick brown fox jumps over the lazy dog.",
@@ -13,7 +13,7 @@ CORPUS = [
 @pytest.fixture(scope="module")
 def tok(tmp_path_factory):
     path = tmp_path_factory.mktemp("tok") / "tokenizer.json"
-    return SLMTokenizer.train(iter(CORPUS), vocab_size=512, save_path=path)
+    return PicoTokenizer.train(iter(CORPUS), vocab_size=512, save_path=path)
 
 
 def test_roundtrip(tok):
@@ -43,5 +43,5 @@ def test_chat_template(tok):
 def test_save_and_load(tok, tmp_path):
     path = tmp_path / "t.json"
     tok.tk.save(str(path))
-    loaded = SLMTokenizer.load(path)
+    loaded = PicoTokenizer.load(path)
     assert loaded.encode("zebras jump") == tok.encode("zebras jump")
