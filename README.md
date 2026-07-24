@@ -1,5 +1,7 @@
 # Pico-LM — a small, highly capable language model, trained and run locally
 
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
+
 A from-scratch small language model stack in PyTorch, sized for a laptop GPU
 (tuned for an RTX 3050 6 GB). Same architecture family as Llama/Mistral, scaled down:
 
