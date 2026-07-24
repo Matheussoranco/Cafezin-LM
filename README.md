@@ -129,8 +129,21 @@ src/pico_lm/
 
 ## License
 
-[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
-— free to use, modify and share for any noncommercial purpose, provided you keep the
-attribution and license anything you share onward — including modified versions and
-models you train from this code — under these same terms (**ShareAlike**, i.e. copyleft).
-Commercial use requires a separate license. See [LICENSE](LICENSE).
+[**CC BY-NC-SA 4.0**](https://creativecommons.org/licenses/by-nc-sa/4.0/) — see [LICENSE](LICENSE).
+
+Copyright © 2026 Matheus Soranzo <matheussoranco@gmail.com>
+`SPDX-License-Identifier: CC-BY-NC-SA-4.0`
+
+Free to use, study, modify and share for any noncommercial purpose, on three
+conditions:
+
+- **NonCommercial** — not primarily for or directed towards commercial advantage
+  or monetary compensation (§1(k)).
+- **ShareAlike** — anything you share onward must carry these same terms. This
+  is a copyleft licence, and it reaches modified versions *and* models you train
+  from this code (§3(b)).
+- **Attribution** — keep the copyright notice, the licence reference and the
+  warranty disclaimer, say if you changed it, and link back where practicable (§3(a)).
+
+Commercial use requires a separate licence from the copyright holder. Note the
+licence grants no patent or trademark rights (§2(b)(2)).
