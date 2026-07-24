@@ -1,8 +1,17 @@
 [project]
-name = "slm"
+name = "pico-lm"
 version = "0.1.0"
 description = "A small, highly capable language model you can train and run locally"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "PolyForm-Noncommercial-1.0.0" }
+authors = [{ name = "Matheus Soranzo", email = "matheussoranco@gmail.com" }]
+keywords = ["llm", "transformer", "language-model", "pytorch", "from-scratch", "local-llm"]
+classifiers = [
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "torch>=2.2",
     "numpy>=1.24",
@@ -11,10 +20,10 @@ dependencies = [
 
 [project.optional-dependencies]
 data = ["datasets>=2.18"]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "ruff>=0.6"]
 
 [project.scripts]
-slm = "slm.cli:main"
+pico-lm = "pico_lm.cli:main"
 
 [build-system]
 requires = ["setuptools>=64"]
@@ -25,4 +34,27 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: end-to-end training smoke test"]
+addopts = "-q"
+markers = [
+    "slow: end-to-end training smoke test (deselect with -m 'not slow')",
+    "gpu: requires a CUDA device",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    # Non-ASCII punctuation in strings/docstrings (en-dashes, arrows, check-marks).
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Config/schema class attributes are read-only signatures.
+    "RUF012",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]

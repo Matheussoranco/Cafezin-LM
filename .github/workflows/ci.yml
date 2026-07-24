@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+  schedule:
+    # weekly full run, including the slow end-to-end training smoke test
+    - cron: "0 6 * * 1"
+
+jobs:
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff lint
+        run: ruff check .
+
+  test:
+    name: Test Suite (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      # CPU-only wheels: the default index pulls multi-GB CUDA builds that the
+      # runner has no GPU for anyway.
+      - name: Install CPU-only PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install package and dev dependencies
+        run: pip install -e ".[dev]"
+
+      # `slow` covers the end-to-end training runs; they work on CPU but are
+      # minutes of compute, so keep them out of the default job.
+      - name: Run tests
+        run: pytest -m "not slow" --tb=short -q
+
+  slow:
+    name: End-to-end training smoke test
+    runs-on: ubuntu-latest
+    # opt-in: run manually, or on the weekly schedule below
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install CPU-only PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install package and dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run the slow suite
+        run: pytest -m slow --tb=short -q

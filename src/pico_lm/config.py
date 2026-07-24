@@ -1,7 +1,7 @@
 """Model and training configuration with presets sized for local hardware."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass
 
 
 @dataclass
@@ -22,7 +22,9 @@ class ModelConfig:
         if self.dim % self.n_heads != 0:
             raise ValueError(f"dim {self.dim} not divisible by n_heads {self.n_heads}")
         if self.n_heads % self.n_kv_heads != 0:
-            raise ValueError(f"n_heads {self.n_heads} not divisible by n_kv_heads {self.n_kv_heads}")
+            raise ValueError(
+                f"n_heads {self.n_heads} not divisible by n_kv_heads {self.n_kv_heads}"
+            )
 
     @property
     def head_dim(self) -> int:
@@ -32,7 +34,7 @@ class ModelConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ModelConfig":
+    def from_dict(cls, d: dict) -> ModelConfig:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
@@ -62,7 +64,7 @@ class TrainConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "TrainConfig":
+    def from_dict(cls, d: dict) -> TrainConfig:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 

@@ -1,4 +1,4 @@
-"""slm command-line interface: tokenizer / prepare / train / generate / chat / info / quantize."""
+"""Pico-LM command line: tokenizer / prepare / train / generate / chat / info / quantize."""
 from __future__ import annotations
 
 import argparse
@@ -29,27 +29,38 @@ def _source_kwargs(args: argparse.Namespace) -> dict:
 
 def cmd_tokenizer(args: argparse.Namespace) -> None:
     from .data import iter_texts
-    from .tokenizer import SLMTokenizer
+    from .tokenizer import PicoTokenizer
 
-    tok = SLMTokenizer.train(iter_texts(**_source_kwargs(args)), args.vocab_size, args.out)
+    tok = PicoTokenizer.train(iter_texts(**_source_kwargs(args)), args.vocab_size, args.out)
     print(f"trained tokenizer: vocab={tok.vocab_size} -> {args.out}")
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:
     from .data import prepare
-    from .tokenizer import SLMTokenizer
+    from .tokenizer import PicoTokenizer
 
-    tok = SLMTokenizer.load(args.tokenizer)
+    tok = PicoTokenizer.load(args.tokenizer)
     meta = prepare(tok, args.out, val_fraction=args.val_fraction, **_source_kwargs(args))
     print(json.dumps(meta, indent=2))
+
+
+TRAIN_OVERRIDES = (
+    "batch_size", "grad_accum_steps", "max_steps", "lr", "min_lr",
+    "eval_interval", "eval_iters", "warmup_steps", "log_interval", "seed",
+)
 
 
 def cmd_train(args: argparse.Namespace) -> None:
     from .config import TrainConfig, preset
     from .train import train
 
+    data_dir = Path(args.data)
+    meta_path = data_dir / "meta.json"
+    if not meta_path.exists():
+        raise SystemExit(f"{meta_path} not found — run `pico-lm prepare --out {args.data}` first")
+
     model_cfg = preset(args.preset)
-    meta = json.loads((Path(args.data) / "meta.json").read_text(encoding="utf-8"))
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
     model_cfg.vocab_size = meta["vocab_size"]
     if args.seq_len:
         model_cfg.max_seq_len = args.seq_len
@@ -57,13 +68,14 @@ def cmd_train(args: argparse.Namespace) -> None:
     train_cfg = TrainConfig()
     if args.seq_len:
         train_cfg.seq_len = args.seq_len
-    for name in ("batch_size", "grad_accum_steps", "max_steps", "lr", "eval_interval", "eval_iters", "warmup_steps"):
+    for name in TRAIN_OVERRIDES:
         v = getattr(args, name)
         if v is not None:
             setattr(train_cfg, name, v)
     train_cfg.compile = args.compile
 
-    tokenizer_path = args.tokenizer or str(Path(args.data) / "tokenizer.json")
+    # explicit flag > tokenizer recorded by `prepare` > conventional location
+    tokenizer_path = args.tokenizer or str(data_dir / meta.get("tokenizer", "tokenizer.json"))
     best = train(
         model_cfg,
         train_cfg,
@@ -104,10 +116,15 @@ def cmd_info(args: argparse.Namespace) -> None:
 
     model, ckpt = load_model(args.ckpt, device="cpu")
     cfg = model.cfg
+    best_val = ckpt.get("best_val")
+    best_str = f"{best_val:.4f}" if isinstance(best_val, (int, float)) else "n/a"
     print(f"params:      {model.num_params()/1e6:.2f}M")
-    print(f"arch:        dim={cfg.dim} layers={cfg.n_layers} heads={cfg.n_heads} kv_heads={cfg.n_kv_heads}")
+    print(
+        f"arch:        dim={cfg.dim} layers={cfg.n_layers} "
+        f"heads={cfg.n_heads} kv_heads={cfg.n_kv_heads}"
+    )
     print(f"vocab:       {cfg.vocab_size}  max_seq_len: {cfg.max_seq_len}")
-    print(f"step:        {ckpt.get('step')}  best_val: {ckpt.get('best_val'):.4f}")
+    print(f"step:        {ckpt.get('step')}  best_val: {best_str}")
     print(f"tokenizer:   {ckpt.get('tokenizer_path')}")
 
 
@@ -121,7 +138,11 @@ def cmd_quantize(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="slm", description="train and run a small language model locally")
+    from .config import PRESETS
+
+    p = argparse.ArgumentParser(
+        prog="pico-lm", description="train and run a small language model locally"
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     t = sub.add_parser("tokenizer", help="train a BPE tokenizer on your corpus")
@@ -138,21 +159,24 @@ def build_parser() -> argparse.ArgumentParser:
     pr.set_defaults(fn=cmd_prepare)
 
     tr = sub.add_parser("train", help="train a model")
-    tr.add_argument("--preset", default="small", help="nano | micro | small | base")
+    tr.add_argument("--preset", default="small", choices=sorted(PRESETS))
     tr.add_argument("--data", default="data")
     tr.add_argument("--out", default="runs/small")
-    tr.add_argument("--tokenizer", help="tokenizer path recorded into checkpoints")
-    tr.add_argument("--resume", action="store_true")
-    tr.add_argument("--teacher", help="checkpoint of a larger slm to distill from")
+    tr.add_argument("--tokenizer", help="tokenizer to copy into the run dir")
+    tr.add_argument("--resume", action="store_true", help="continue from <out>/last.pt")
+    tr.add_argument("--teacher", help="checkpoint of a larger Pico-LM model to distill from")
     tr.add_argument("--compile", action="store_true")
     tr.add_argument("--seq-len", type=int)
     tr.add_argument("--batch-size", type=int)
     tr.add_argument("--grad-accum-steps", type=int)
     tr.add_argument("--max-steps", type=int)
     tr.add_argument("--lr", type=float)
+    tr.add_argument("--min-lr", type=float, help="cosine floor (default 6e-5)")
     tr.add_argument("--warmup-steps", type=int)
     tr.add_argument("--eval-interval", type=int)
     tr.add_argument("--eval-iters", type=int)
+    tr.add_argument("--log-interval", type=int)
+    tr.add_argument("--seed", type=int)
     tr.set_defaults(fn=cmd_train)
 
     def _gen_args(sp: argparse.ArgumentParser) -> None:
