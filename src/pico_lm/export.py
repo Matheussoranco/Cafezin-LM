@@ -1,4 +1,5 @@
 """Export: dynamic int8 quantization for fast CPU inference."""
+
 from __future__ import annotations
 
 from pathlib import Path

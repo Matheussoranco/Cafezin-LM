@@ -1,4 +1,5 @@
 """Single-GPU training loop: AMP, grad accumulation, cosine LR, checkpoints, KD."""
+
 from __future__ import annotations
 
 import contextlib
@@ -214,7 +215,7 @@ def train(
         teacher.eval()
         for p in teacher.parameters():
             p.requires_grad_(False)
-        print(f"distilling from teacher: {teacher.num_params()/1e6:.1f}M params")
+        print(f"distilling from teacher: {teacher.num_params() / 1e6:.1f}M params")
 
     if train_cfg.compile:
         model = torch.compile(model)
@@ -222,7 +223,7 @@ def train(
     n_params = sum(p.numel() for p in model.parameters())
     tokens_per_step = train_cfg.batch_size * train_cfg.grad_accum_steps * train_cfg.seq_len
     print(
-        f"device={device} dtype={dtype} params={n_params/1e6:.1f}M "
+        f"device={device} dtype={dtype} params={n_params / 1e6:.1f}M "
         f"tokens/step={tokens_per_step:,}"
     )
 
@@ -281,13 +282,25 @@ def train(
             # best_val must be updated *before* last.pt is written, otherwise a
             # resume reloads a stale best and can overwrite best.pt with a worse model
             save_checkpoint(
-                out_dir / "last.pt", raw, optimizer, model_cfg, train_cfg,
-                step, best_val, tokenizer_path,
+                out_dir / "last.pt",
+                raw,
+                optimizer,
+                model_cfg,
+                train_cfg,
+                step,
+                best_val,
+                tokenizer_path,
             )
             if improved:
                 save_checkpoint(
-                    out_dir / "best.pt", raw, optimizer, model_cfg, train_cfg,
-                    step, best_val, tokenizer_path,
+                    out_dir / "best.pt",
+                    raw,
+                    optimizer,
+                    model_cfg,
+                    train_cfg,
+                    step,
+                    best_val,
+                    tokenizer_path,
                 )
                 print(f"  new best val {best_val:.4f} -> best.pt")
             t0 = time.time()

@@ -1,4 +1,5 @@
 """Pico-LM command line: tokenizer / prepare / train / generate / chat / info / quantize."""
+
 from __future__ import annotations
 
 import argparse
@@ -45,8 +46,16 @@ def cmd_prepare(args: argparse.Namespace) -> None:
 
 
 TRAIN_OVERRIDES = (
-    "batch_size", "grad_accum_steps", "max_steps", "lr", "min_lr",
-    "eval_interval", "eval_iters", "warmup_steps", "log_interval", "seed",
+    "batch_size",
+    "grad_accum_steps",
+    "max_steps",
+    "lr",
+    "min_lr",
+    "eval_interval",
+    "eval_iters",
+    "warmup_steps",
+    "log_interval",
+    "seed",
 )
 
 
@@ -93,9 +102,15 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
     model, tok, device = load_for_inference(args.ckpt, args.tokenizer)
     text = complete(
-        model, tok, args.prompt, device,
-        max_new_tokens=args.tokens, temperature=args.temperature,
-        top_k=args.top_k, top_p=args.top_p, repetition_penalty=args.rep_penalty,
+        model,
+        tok,
+        args.prompt,
+        device,
+        max_new_tokens=args.tokens,
+        temperature=args.temperature,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        repetition_penalty=args.rep_penalty,
     )
     print(args.prompt + text)
 
@@ -105,9 +120,15 @@ def cmd_chat(args: argparse.Namespace) -> None:
 
     model, tok, device = load_for_inference(args.ckpt, args.tokenizer)
     chat_repl(
-        model, tok, device, system=args.system,
-        max_new_tokens=args.tokens, temperature=args.temperature,
-        top_k=args.top_k, top_p=args.top_p, repetition_penalty=args.rep_penalty,
+        model,
+        tok,
+        device,
+        system=args.system,
+        max_new_tokens=args.tokens,
+        temperature=args.temperature,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        repetition_penalty=args.rep_penalty,
     )
 
 
@@ -118,7 +139,7 @@ def cmd_info(args: argparse.Namespace) -> None:
     cfg = model.cfg
     best_val = ckpt.get("best_val")
     best_str = f"{best_val:.4f}" if isinstance(best_val, (int, float)) else "n/a"
-    print(f"params:      {model.num_params()/1e6:.2f}M")
+    print(f"params:      {model.num_params() / 1e6:.2f}M")
     print(
         f"arch:        dim={cfg.dim} layers={cfg.n_layers} "
         f"heads={cfg.n_heads} kv_heads={cfg.n_kv_heads}"

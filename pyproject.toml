@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A small, highly capable language model you can train and run locally"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "PolyForm-Noncommercial-1.0.0" }
+license = { text = "CC-BY-NC-SA-4.0" }
 authors = [{ name = "Matheus Soranzo", email = "matheussoranco@gmail.com" }]
 keywords = ["llm", "transformer", "language-model", "pytorch", "from-scratch", "local-llm"]
 classifiers = [
@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 data = ["datasets>=2.18"]
-dev = ["pytest>=7.0", "ruff>=0.6"]
+dev = ["pytest>=7.0", "ruff==0.15.2"]  # ruff pinned: see .github/workflows/ci.yml
 
 [project.scripts]
 pico-lm = "pico_lm.cli:main"

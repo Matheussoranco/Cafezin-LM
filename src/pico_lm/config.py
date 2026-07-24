@@ -1,4 +1,5 @@
 """Model and training configuration with presets sized for local hardware."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -10,13 +11,13 @@ class ModelConfig:
     dim: int = 512
     n_layers: int = 8
     n_heads: int = 8
-    n_kv_heads: int = 4          # grouped-query attention; must divide n_heads
+    n_kv_heads: int = 4  # grouped-query attention; must divide n_heads
     max_seq_len: int = 1024
     rope_theta: float = 10000.0
     norm_eps: float = 1e-5
     dropout: float = 0.0
     tie_weights: bool = True
-    mlp_multiple_of: int = 64    # SwiGLU hidden dim rounded up to this
+    mlp_multiple_of: int = 64  # SwiGLU hidden dim rounded up to this
 
     def __post_init__(self) -> None:
         if self.dim % self.n_heads != 0:
@@ -40,8 +41,8 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 16          # micro-batch (per forward pass)
-    grad_accum_steps: int = 4     # effective batch = batch_size * grad_accum_steps
+    batch_size: int = 16  # micro-batch (per forward pass)
+    grad_accum_steps: int = 4  # effective batch = batch_size * grad_accum_steps
     seq_len: int = 1024
     max_steps: int = 20000
     lr: float = 6e-4
@@ -55,9 +56,9 @@ class TrainConfig:
     eval_iters: int = 100
     log_interval: int = 20
     seed: int = 1337
-    compile: bool = False         # torch.compile (Triton is unavailable on Windows CUDA)
+    compile: bool = False  # torch.compile (Triton is unavailable on Windows CUDA)
     # knowledge distillation (teacher must share the tokenizer/vocab)
-    kd_alpha: float = 0.5         # weight of KD loss vs cross-entropy when a teacher is set
+    kd_alpha: float = 0.5  # weight of KD loss vs cross-entropy when a teacher is set
     kd_temperature: float = 2.0
 
     def to_dict(self) -> dict:

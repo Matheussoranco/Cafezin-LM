@@ -129,6 +129,8 @@ src/pico_lm/
 
 ## License
 
-[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)
-— free to use, modify and share for any noncommercial purpose; commercial use requires a
-separate license. See [LICENSE](LICENSE).
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+— free to use, modify and share for any noncommercial purpose, provided you keep the
+attribution and license anything you share onward — including modified versions and
+models you train from this code — under these same terms (**ShareAlike**, i.e. copyleft).
+Commercial use requires a separate license. See [LICENSE](LICENSE).

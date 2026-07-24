@@ -24,10 +24,18 @@ jobs:
           cache: "pip"
 
       - name: Install ruff
-        run: pip install ruff
+        # PINNED EXACTLY, and it must stay that way. An unpinned ruff means the
+        # rule set is whatever the newest release defaults to: ruff 0.16.0
+        # widened its built-in defaults and turned a sibling project's CI red
+        # with 89 findings in code that had not changed. Keep in lockstep with
+        # the `ruff==` pin in pyproject's [dev] extra.
+        run: pip install "ruff==0.15.2"
 
       - name: Ruff lint
-        run: ruff check .
+        run: ruff check src/ tests/
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/
 
   test:
     name: Test Suite (Python ${{ matrix.python-version }})

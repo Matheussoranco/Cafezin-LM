@@ -4,6 +4,7 @@ Runs the documented sequence — tokenizer -> prepare -> train -> resume -> info
 generate -> quantize — against a small synthetic corpus and a handful of steps.
 Marked `slow`; run it with `pytest -m slow`.
 """
+
 import json
 import random
 from pathlib import Path
@@ -37,23 +38,60 @@ def test_quickstart_cli(tmp_path, monkeypatch, capsys):
     _write_corpus(tmp_path / "corpus" / "stories.txt")
 
     # 1. tokenizer
-    main(["tokenizer", "--input", "corpus/*.txt", "--vocab-size", "1024",
-          "--out", "data/tokenizer.json"])
+    main(
+        [
+            "tokenizer",
+            "--input",
+            "corpus/*.txt",
+            "--vocab-size",
+            "1024",
+            "--out",
+            "data/tokenizer.json",
+        ]
+    )
     assert (tmp_path / "data" / "tokenizer.json").exists()
 
     # 2. prepare
-    main(["prepare", "--input", "corpus/*.txt", "--tokenizer", "data/tokenizer.json",
-          "--out", "data", "--val-fraction", "0.05"])
+    main(
+        [
+            "prepare",
+            "--input",
+            "corpus/*.txt",
+            "--tokenizer",
+            "data/tokenizer.json",
+            "--out",
+            "data",
+            "--val-fraction",
+            "0.05",
+        ]
+    )
     meta = json.loads((tmp_path / "data" / "meta.json").read_text(encoding="utf-8"))
     assert meta["train_tokens"] > 0
     assert meta["val_tokens"] > 0, "prepare must always produce a usable validation split"
 
     # 3. train a handful of steps
     train_args = [
-        "train", "--preset", "nano", "--data", "data", "--out", "runs/nano",
-        "--batch-size", "8", "--grad-accum-steps", "1", "--seq-len", "128",
-        "--warmup-steps", "2", "--eval-interval", "5", "--eval-iters", "2",
-        "--log-interval", "5",
+        "train",
+        "--preset",
+        "nano",
+        "--data",
+        "data",
+        "--out",
+        "runs/nano",
+        "--batch-size",
+        "8",
+        "--grad-accum-steps",
+        "1",
+        "--seq-len",
+        "128",
+        "--warmup-steps",
+        "2",
+        "--eval-interval",
+        "5",
+        "--eval-iters",
+        "2",
+        "--log-interval",
+        "5",
     ]
     main([*train_args, "--max-steps", "10"])
     run = tmp_path / "runs" / "nano"
@@ -68,8 +106,19 @@ def test_quickstart_cli(tmp_path, monkeypatch, capsys):
 
     # 5. inspect + generate + quantize
     main(["info", "--ckpt", "runs/nano/best.pt"])
-    main(["generate", "--ckpt", "runs/nano/best.pt", "--prompt", "Ana went to",
-          "--tokens", "16", "--temperature", "0.0"])
+    main(
+        [
+            "generate",
+            "--ckpt",
+            "runs/nano/best.pt",
+            "--prompt",
+            "Ana went to",
+            "--tokens",
+            "16",
+            "--temperature",
+            "0.0",
+        ]
+    )
     main(["quantize", "--ckpt", "runs/nano/best.pt", "--out", "runs/nano-int8.pt"])
     assert (tmp_path / "runs" / "nano-int8.pt").exists()
 
@@ -86,14 +135,57 @@ def test_generate_works_after_data_dir_is_gone(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     _write_corpus(tmp_path / "corpus" / "stories.txt", n_docs=400)
-    main(["tokenizer", "--input", "corpus/*.txt", "--vocab-size", "512",
-          "--out", "data/tokenizer.json"])
-    main(["prepare", "--input", "corpus/*.txt", "--tokenizer", "data/tokenizer.json",
-          "--out", "data", "--val-fraction", "0.1"])
-    main(["train", "--preset", "nano", "--data", "data", "--out", "runs/nano",
-          "--batch-size", "4", "--grad-accum-steps", "1", "--seq-len", "64",
-          "--max-steps", "4", "--warmup-steps", "1", "--eval-interval", "4",
-          "--eval-iters", "2", "--log-interval", "4"])
+    main(
+        [
+            "tokenizer",
+            "--input",
+            "corpus/*.txt",
+            "--vocab-size",
+            "512",
+            "--out",
+            "data/tokenizer.json",
+        ]
+    )
+    main(
+        [
+            "prepare",
+            "--input",
+            "corpus/*.txt",
+            "--tokenizer",
+            "data/tokenizer.json",
+            "--out",
+            "data",
+            "--val-fraction",
+            "0.1",
+        ]
+    )
+    main(
+        [
+            "train",
+            "--preset",
+            "nano",
+            "--data",
+            "data",
+            "--out",
+            "runs/nano",
+            "--batch-size",
+            "4",
+            "--grad-accum-steps",
+            "1",
+            "--seq-len",
+            "64",
+            "--max-steps",
+            "4",
+            "--warmup-steps",
+            "1",
+            "--eval-interval",
+            "4",
+            "--eval-iters",
+            "2",
+            "--log-interval",
+            "4",
+        ]
+    )
 
     shutil.rmtree(tmp_path / "data")
     model, tok, device = load_for_inference(tmp_path / "runs" / "nano" / "best.pt", device="cpu")

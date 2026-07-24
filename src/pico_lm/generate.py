@@ -1,4 +1,5 @@
 """Inference helpers: completion and an interactive chat REPL."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,7 +60,7 @@ def complete(
         eos_id=tokenizer.eos_id,
         repetition_penalty=repetition_penalty,
     )
-    return tokenizer.decode(y[0, len(ids):].tolist())
+    return tokenizer.decode(y[0, len(ids) :].tolist())
 
 
 def chat_repl(

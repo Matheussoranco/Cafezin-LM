@@ -1,4 +1,5 @@
 """Byte-level BPE tokenizer trained on your own corpus (HuggingFace `tokenizers`)."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable

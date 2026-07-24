@@ -1,4 +1,5 @@
 """Corpus ingestion: text sources -> tokenized uint16 memmaps (nanoGPT-style)."""
+
 from __future__ import annotations
 
 import json

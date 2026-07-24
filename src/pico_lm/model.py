@@ -3,6 +3,7 @@
 The same architecture family as Llama/Mistral, scaled down. Supports an
 incremental KV cache for O(1)-per-token generation.
 """
+
 from __future__ import annotations
 
 import math

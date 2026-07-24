@@ -1,4 +1,5 @@
 """Library-level training smoke test: tokenizer -> prepare -> train -> resume -> generate."""
+
 from pathlib import Path
 
 import pytest
@@ -17,8 +18,14 @@ def _tiny_cfgs(vocab_size: int, max_steps: int = 6) -> tuple[ModelConfig, TrainC
         vocab_size=vocab_size, dim=64, n_layers=2, n_heads=4, n_kv_heads=2, max_seq_len=64
     )
     train_cfg = TrainConfig(
-        batch_size=4, grad_accum_steps=1, seq_len=64, max_steps=max_steps,
-        warmup_steps=2, eval_interval=3, eval_iters=2, log_interval=2,
+        batch_size=4,
+        grad_accum_steps=1,
+        seq_len=64,
+        max_steps=max_steps,
+        warmup_steps=2,
+        eval_interval=3,
+        eval_iters=2,
+        log_interval=2,
     )
     return model_cfg, train_cfg
 
@@ -83,8 +90,14 @@ def test_resume_without_checkpoint_starts_fresh(tmp_path, capsys):
 
     model_cfg, train_cfg = _tiny_cfgs(tok.vocab_size, max_steps=2)
     train_cfg.eval_interval = 2
-    train(model_cfg, train_cfg, tmp_path / "data", tmp_path / "run", resume=True,
-          tokenizer_path=str(tok_path))
+    train(
+        model_cfg,
+        train_cfg,
+        tmp_path / "data",
+        tmp_path / "run",
+        resume=True,
+        tokenizer_path=str(tok_path),
+    )
     assert "starting from scratch" in capsys.readouterr().out
 
 

@@ -56,10 +56,13 @@ def test_prepare_and_batches(tok, corpus_file, tmp_path):
 def test_chat_jsonl_source(tmp_path):
     p = tmp_path / "chat.jsonl"
     rows = [
-        {"messages": [{"role": "user", "content": "hi"},
-                      {"role": "assistant", "content": "hello"}]},
-        {"messages": [{"role": "user", "content": "2+2?"},
-                      {"role": "assistant", "content": "4"}]},
+        {
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+            ]
+        },
+        {"messages": [{"role": "user", "content": "2+2?"}, {"role": "assistant", "content": "4"}]},
     ]
     p.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
     docs = list(iter_texts(chat_jsonl=str(p)))
