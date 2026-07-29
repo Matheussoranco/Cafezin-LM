@@ -75,7 +75,9 @@ counter and best-val bookkeeping intact — raise `--max-steps` to train further
 
 Pick the micro-batch from this table and get the effective batch you want from
 `--grad-accum-steps`. All four rows below are an effective batch of 64, measured on
-an RTX 3050 6 GB (6.44 GB usable) in bf16:
+an RTX 3050 6 GB (6.44 GB usable) in bf16. These are optimiser-step throughputs
+measured on synthetic batches; a real run also reads the token memmap from disk and
+lands roughly 15% lower (`micro` logs ~42k tok/s in practice against the 48k here):
 
 | preset | flags                                              | VRAM    | throughput   |
 |--------|----------------------------------------------------|---------|--------------|
@@ -95,8 +97,9 @@ on the same GPU:
 | small  | 16          | 8.5 GB (spills) | 11k tok/s (0.40x)   |
 | base   | 8           | 7.6 GB (spills) | 4.6k tok/s (0.39x)  |
 
-If throughput is far below the first table, you are over the VRAM budget — halve
-`--batch-size` and double `--grad-accum-steps`.
+Being ~15% under the first table is just the data loader. Being a third of it, or
+worse, means you are over the VRAM budget — halve `--batch-size` and double
+`--grad-accum-steps`.
 
 ### Training flags
 
