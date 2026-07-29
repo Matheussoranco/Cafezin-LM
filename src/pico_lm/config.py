@@ -72,13 +72,13 @@ class TrainConfig:
 # Presets sized for a 6 GB laptop GPU (RTX 3050-class).
 # Params counted with the default 16k vocab, weights tied.
 PRESETS: dict[str, ModelConfig] = {
-    # ~3M params — smoke tests and CI
+    # 2.9M params — smoke tests and CI
     "nano": ModelConfig(dim=128, n_layers=4, n_heads=4, n_kv_heads=2, max_seq_len=256),
-    # ~22M params — trains in a couple of hours, TinyStories-class fluency
+    # 15.7M params — trains in a few hours, TinyStories-class fluency
     "micro": ModelConfig(dim=384, n_layers=6, n_heads=6, n_kv_heads=2, max_seq_len=512),
-    # ~42M params — good quality/speed balance for overnight runs
+    # 32.0M params — good quality/speed balance for overnight runs
     "small": ModelConfig(dim=512, n_layers=8, n_heads=8, n_kv_heads=4, max_seq_len=1024),
-    # ~110M params — GPT-2-class capacity, the most this GPU trains comfortably
+    # 88.1M params — GPT-2-class capacity, the most this GPU trains comfortably
     "base": ModelConfig(dim=768, n_layers=12, n_heads=12, n_kv_heads=4, max_seq_len=1024),
 }
 

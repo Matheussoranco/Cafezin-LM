@@ -46,8 +46,8 @@ pico-lm tokenizer --hf roneneldan/TinyStories --vocab-size 16384 --out data\toke
 # 2. Tokenize into train/val memmaps (also copies the tokenizer into data\)
 pico-lm prepare --hf roneneldan/TinyStories --tokenizer data\tokenizer.json --out data --max-docs 500000
 
-# 3. Train (micro ≈ 22M params; a few hours on the 3050)
-pico-lm train --preset micro --data data --out runs\micro --batch-size 32 --grad-accum-steps 2 --seq-len 512
+# 3. Train (micro ≈ 16M params; ~4 hours on the 3050)
+pico-lm train --preset micro --data data --out runs\micro --batch-size 16 --grad-accum-steps 4 --seq-len 512
 
 # 4. Generate
 pico-lm generate --ckpt runs\micro\best.pt --prompt "Once upon a time"
@@ -66,12 +66,37 @@ counter and best-val bookkeeping intact — raise `--max-steps` to train further
 
 | preset | params | dim | layers | heads (kv) | context |
 |--------|--------|-----|--------|------------|---------|
-| nano   | ~3M    | 128 | 4      | 4 (2)      | 256     |
-| micro  | ~22M   | 384 | 6      | 6 (2)      | 512     |
-| small  | ~42M   | 512 | 8      | 8 (4)      | 1024    |
-| base   | ~110M  | 768 | 12     | 12 (4)     | 1024    |
+| nano   | 2.9M   | 128 | 4      | 4 (2)      | 256     |
+| micro  | 15.7M  | 384 | 6      | 6 (2)      | 512     |
+| small  | 32.0M  | 512 | 8      | 8 (4)      | 1024    |
+| base   | 88.1M  | 768 | 12     | 12 (4)     | 1024    |
 
-For `base` on 6 GB, use `--batch-size 8 --grad-accum-steps 8`.
+### Batch settings that actually fit 6 GB
+
+Pick the micro-batch from this table and get the effective batch you want from
+`--grad-accum-steps`. All four rows below are an effective batch of 64, measured on
+an RTX 3050 6 GB (6.44 GB usable) in bf16:
+
+| preset | flags                                              | VRAM    | throughput   |
+|--------|----------------------------------------------------|---------|--------------|
+| nano   | `--batch-size 32 --grad-accum-steps 2 --seq-len 256`  | 2.5 GB  | 66k tok/s    |
+| micro  | `--batch-size 16 --grad-accum-steps 4 --seq-len 512`  | 3.5 GB  | 48k tok/s    |
+| small  | `--batch-size 8 --grad-accum-steps 8 --seq-len 1024`  | 4.6 GB  | 27k tok/s    |
+| base   | `--batch-size 4 --grad-accum-steps 16 --seq-len 1024` | 5.0 GB  | 12k tok/s    |
+
+**Do not push the micro-batch higher on a 6 GB card.** On Windows the WDDM driver
+silently spills oversubscribed CUDA allocations into system RAM instead of raising
+out-of-memory, so a too-large batch still runs — just several times slower. Measured
+on the same GPU:
+
+| preset | micro-batch | VRAM asked for  | throughput          |
+|--------|-------------|-----------------|---------------------|
+| micro  | 32          | 6.6 GB (spills) | 36k tok/s (0.75x)   |
+| small  | 16          | 8.5 GB (spills) | 11k tok/s (0.40x)   |
+| base   | 8           | 7.6 GB (spills) | 4.6k tok/s (0.39x)  |
+
+If throughput is far below the first table, you are over the VRAM budget — halve
+`--batch-size` and double `--grad-accum-steps`.
 
 ### Training flags
 
@@ -83,9 +108,12 @@ in `config.py`. `pico-lm train --help` is the authority.
 ## Distillation
 
 ```powershell
-pico-lm train --preset base  --data data --out runs\base
-pico-lm train --preset small --data data --out runs\small-kd --teacher runs\base\best.pt
+pico-lm train --preset base  --data data --out runs\base     --batch-size 4 --grad-accum-steps 16
+pico-lm train --preset small --data data --out runs\small-kd --batch-size 8 --grad-accum-steps 8 --teacher runs\base\best.pt
 ```
+
+The teacher is resident on the GPU alongside the student during distillation, so drop
+the student's `--batch-size` one row further down the table if you hit a slowdown.
 
 ## Chat / SFT
 
