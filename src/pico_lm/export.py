@@ -28,6 +28,11 @@ def quantize_int8(ckpt_path: str | Path, out_path: str | Path) -> Path:
     return out_path
 
 
-def load_quantized(path: str | Path) -> tuple[torch.nn.Module, str | None]:
+def load_quantized(path: str | Path) -> tuple[torch.nn.Module, dict]:
+    """Load a `quantize_int8` export. Mirrors `train.load_model`'s (model, ckpt) shape.
+
+    Uses `weights_only=False` because the export stores the module itself rather
+    than a state dict — only load quantized checkpoints you produced yourself.
+    """
     ckpt = torch.load(str(path), map_location="cpu", weights_only=False)
-    return ckpt["quantized_model"], ckpt.get("tokenizer_path")
+    return ckpt["quantized_model"], ckpt

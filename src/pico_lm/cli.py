@@ -133,13 +133,37 @@ def cmd_chat(args: argparse.Namespace) -> None:
 
 
 def cmd_info(args: argparse.Namespace) -> None:
+    import pickle
+
+    import torch
+
     from .train import load_model
 
-    model, ckpt = load_model(args.ckpt, device="cpu")
+    quantized = False
+    try:
+        model, ckpt = load_model(args.ckpt, device="cpu")
+    except pickle.UnpicklingError:
+        # a quantized export: a pickled module plus cfg, with no training bookkeeping
+        from .export import load_quantized
+
+        model, ckpt = load_quantized(args.ckpt)
+        quantized = True
     cfg = model.cfg
     best_val = ckpt.get("best_val")
     best_str = f"{best_val:.4f}" if isinstance(best_val, (int, float)) else "n/a"
-    print(f"params:      {model.num_params() / 1e6:.2f}M")
+    if quantized:
+        # int8 Linear weights live in _packed_params, not in .parameters(), so
+        # num_params() would report only the embedding and norms — count the
+        # architecture instead, on the meta device so nothing is allocated.
+        from .config import ModelConfig
+        from .model import Transformer
+
+        with torch.device("meta"):
+            n_params = Transformer(ModelConfig.from_dict(ckpt["model_cfg"])).num_params()
+        print("format:      int8 dynamic-quantized (CPU inference only)")
+        print(f"params:      {n_params / 1e6:.2f}M")
+    else:
+        print(f"params:      {model.num_params() / 1e6:.2f}M")
     print(
         f"arch:        dim={cfg.dim} layers={cfg.n_layers} "
         f"heads={cfg.n_heads} kv_heads={cfg.n_kv_heads}"

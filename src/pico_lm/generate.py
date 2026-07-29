@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 
 import torch
@@ -14,12 +15,23 @@ from .train import load_model, pick_device
 def load_for_inference(
     ckpt_path: str | Path, tokenizer_path: str | Path | None = None, device: str | None = None
 ) -> tuple[Transformer, PicoTokenizer, str]:
-    device = device or pick_device()
-    model, ckpt = load_model(ckpt_path, device)
+    try:
+        device = device or pick_device()
+        model, ckpt = load_model(ckpt_path, device)
+        recorded_tokenizer = ckpt.get("tokenizer_path")
+    except pickle.UnpicklingError:
+        # `quantize` stores the whole module pickled rather than a state dict, so
+        # the weights_only loader in load_model refuses it. Dynamic int8 kernels
+        # are CPU-only, so the device choice is forced regardless of what was asked.
+        from .export import load_quantized
+
+        model, ckpt = load_quantized(ckpt_path)
+        recorded_tokenizer = ckpt.get("tokenizer_path")
+        device = "cpu"
     model.eval()
     candidates = [
         tokenizer_path,
-        ckpt.get("tokenizer_path"),
+        recorded_tokenizer,
         # training stages a copy beside the checkpoints; fall back to it when the
         # recorded absolute path has moved (renamed folder, copied run dir, ...)
         Path(ckpt_path).parent / "tokenizer.json",

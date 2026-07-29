@@ -125,6 +125,36 @@ def test_quickstart_cli(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "params:" in out and "Ana went to" in out
 
+    # 6. the quantized export must still be usable — merely existing is not enough.
+    # `quantize` pickles the module, which load_model's weights_only loader rejects,
+    # so `info` and `generate` have to route it through load_quantized.
+    def _params_line(text: str) -> str:
+        return next(ln for ln in text.splitlines() if ln.startswith("params:"))
+
+    main(["info", "--ckpt", "runs/nano-int8.pt"])
+    qout = capsys.readouterr().out
+    assert "int8 dynamic-quantized" in qout
+    # int8 Linear weights are not nn.Parameters, so a naive count would report only
+    # the embedding; quantizing must not change the reported parameter count
+    assert _params_line(qout) == _params_line(out)
+
+    main(
+        [
+            "generate",
+            "--ckpt",
+            "runs/nano-int8.pt",
+            "--tokenizer",
+            "runs/nano/tokenizer.json",
+            "--prompt",
+            "Ana went to",
+            "--tokens",
+            "8",
+            "--temperature",
+            "0.0",
+        ]
+    )
+    assert "Ana went to" in capsys.readouterr().out
+
 
 @pytest.mark.slow
 def test_generate_works_after_data_dir_is_gone(tmp_path, monkeypatch):

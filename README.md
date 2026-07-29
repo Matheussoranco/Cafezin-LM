@@ -135,7 +135,15 @@ pico-lm chat --ckpt runs\micro-sft\best.pt --system "You are a helpful assistant
 ```powershell
 pico-lm info --ckpt runs\micro\best.pt          # params, config, training step
 pico-lm quantize --ckpt runs\micro\best.pt --out runs\micro-int8.pt   # 4x smaller, CPU inference
+
+# a quantized checkpoint is a drop-in for --ckpt; it always runs on CPU
+pico-lm generate --ckpt runs\micro-int8.pt --tokenizer runs\micro\tokenizer.json --prompt "Once upon a time"
+pico-lm info     --ckpt runs\micro-int8.pt
 ```
+
+`quantize` writes the module itself rather than a state dict, so keep the tokenizer
+path handy — the export carries the one recorded in the source checkpoint, but pass
+`--tokenizer` if you have moved the run directory.
 
 ## Tests
 
