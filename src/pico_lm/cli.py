@@ -1,4 +1,7 @@
-"""Pico-LM command line: tokenizer / prepare / train / generate / chat / info / quantize."""
+"""Pico-LM command line.
+
+tokenizer / prepare / train / eval / generate / chat / info / presets / runs / quantize.
+"""
 
 from __future__ import annotations
 
@@ -158,6 +161,136 @@ def cmd_quantize(args: argparse.Namespace) -> None:
     print(f"quantized {src:.1f}MB -> {dst:.1f}MB at {out}")
 
 
+def cmd_presets(args: argparse.Namespace) -> None:
+    from .config import PRESETS, preset
+    from .model import Transformer
+
+    names = [args.name] if args.name else list(PRESETS)
+    unknown = [n for n in names if n not in PRESETS]
+    if unknown:
+        raise SystemExit(f"unknown preset {unknown[0]!r}; choose from {sorted(PRESETS)}")
+
+    if args.json:
+        payload = {n: PRESETS[n].to_dict() for n in names}
+        print(json.dumps(payload, indent=2))
+        return
+
+    header = f"{'preset':8s} {'params':>9s}  {'dim':>4s} {'layers':>6s} {'heads':>5s} "
+    header += f"{'kv':>3s} {'seq':>5s}"
+    print(header)
+    print("-" * len(header))
+    for name in names:
+        cfg = preset(name)
+        # Instantiate on the meta device: parameter count without allocating.
+        try:
+            import torch
+
+            with torch.device("meta"):
+                params = Transformer(cfg).num_params()
+            params_str = f"{params / 1e6:.1f}M"
+        except Exception:
+            params_str = "?"
+        print(
+            f"{name:8s} {params_str:>9s}  {cfg.dim:>4d} {cfg.n_layers:>6d} "
+            f"{cfg.n_heads:>5d} {cfg.n_kv_heads:>3d} {cfg.max_seq_len:>5d}"
+        )
+    if not args.name:
+        print("\nTrain one with:  pico-lm train --preset micro --data data --out runs/micro")
+
+
+def cmd_eval(args: argparse.Namespace) -> None:
+    from .config import TrainConfig
+    from .data import TokenDataset
+    from .train import estimate_loss, load_model, pick_device, pick_dtype
+
+    data_dir = Path(args.data)
+    device = args.device or pick_device()
+    model, ckpt = load_model(args.ckpt, device=device)
+    model.eval()
+
+    cfg = TrainConfig()
+    cfg.batch_size = args.batch_size
+    cfg.eval_iters = args.iters
+    cfg.seq_len = min(args.seq_len or model.cfg.max_seq_len, model.cfg.max_seq_len)
+
+    datasets: dict[str, TokenDataset] = {}
+    for split in ("train", "val"):
+        bin_path = data_dir / f"{split}.bin"
+        if bin_path.exists():
+            datasets[split] = TokenDataset(bin_path)
+    if not datasets:
+        raise SystemExit(f"no train.bin/val.bin under {data_dir} — run `pico-lm prepare` first")
+
+    dtype = pick_dtype(device)
+    losses = estimate_loss(model, datasets, cfg, device, dtype)
+
+    import math
+
+    print(f"checkpoint:  {args.ckpt}")
+    print(f"device:      {device}  seq_len={cfg.seq_len}  iters={cfg.eval_iters}")
+    print(f"step:        {ckpt.get('step')}")
+    for split, loss in losses.items():
+        print(f"{split + ' loss:':12s} {loss:.4f}   perplexity: {math.exp(min(loss, 20)):.2f}")
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "checkpoint": str(args.ckpt),
+                    "step": ckpt.get("step"),
+                    "losses": losses,
+                    "perplexity": {k: math.exp(min(v, 20)) for k, v in losses.items()},
+                },
+                indent=2,
+            )
+        )
+
+
+def cmd_runs(args: argparse.Namespace) -> None:
+    runs_dir = Path(args.dir)
+    if not runs_dir.is_dir():
+        raise SystemExit(f"{runs_dir} not found")
+
+    # A run is any directory holding a checkpoint.
+    runs = sorted(
+        d for d in runs_dir.iterdir() if d.is_dir() and any(d.glob("*.pt"))
+    )
+    if not runs:
+        print(f"no runs under {runs_dir} (a run is a directory containing *.pt)")
+        return
+
+    print(f"{'run':16s} {'ckpts':>5s} {'size':>9s} {'step':>8s} {'best_val':>9s}  modified")
+    print("-" * 72)
+    for run in runs:
+        ckpts = sorted(run.glob("*.pt"))
+        size_mb = sum(c.stat().st_size for c in ckpts) / 1e6
+        step, best = "?", "?"
+        # Read the metadata from the best checkpoint without building the model.
+        probe = run / "best.pt"
+        if not probe.exists():
+            probe = ckpts[0]
+        try:
+            import torch
+
+            meta = torch.load(probe, map_location="cpu", weights_only=False)
+            step = str(meta.get("step", "?"))
+            best_val = meta.get("best_val")
+            best = f"{best_val:.4f}" if isinstance(best_val, (int, float)) else "?"
+        except Exception:
+            pass
+        import datetime
+
+        mtime = datetime.datetime.fromtimestamp(probe.stat().st_mtime)
+        print(
+            f"{run.name:16s} {len(ckpts):>5d} {size_mb:>8.1f}M {step:>8s} {best:>9s}  "
+            f"{mtime:%Y-%m-%d %H:%M}"
+        )
+
+    log = runs_dir / "logs"
+    if log.is_dir():
+        print(f"\nlogs: {log} ({len(list(log.iterdir()))} files)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     from .config import PRESETS
 
@@ -227,6 +360,25 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--ckpt", required=True)
     q.add_argument("--out", default="runs/quantized.pt")
     q.set_defaults(fn=cmd_quantize)
+
+    pp = sub.add_parser("presets", help="list model presets and their parameter counts")
+    pp.add_argument("name", nargs="?", default="", help=f"show one preset ({', '.join(PRESETS)})")
+    pp.add_argument("--json", action="store_true")
+    pp.set_defaults(fn=cmd_presets)
+
+    e = sub.add_parser("eval", help="measure loss / perplexity of a checkpoint on a dataset")
+    e.add_argument("--ckpt", required=True)
+    e.add_argument("--data", default="data", help="directory holding train.bin / val.bin")
+    e.add_argument("--iters", type=int, default=100, help="batches per split")
+    e.add_argument("--batch-size", type=int, default=16)
+    e.add_argument("--seq-len", type=int, default=0, help="0 = the model's max_seq_len")
+    e.add_argument("--device", default="", help="cuda / cpu (default: auto)")
+    e.add_argument("--json", action="store_true")
+    e.set_defaults(fn=cmd_eval)
+
+    r = sub.add_parser("runs", help="list training runs and their checkpoints")
+    r.add_argument("--dir", default="runs", help="runs directory")
+    r.set_defaults(fn=cmd_runs)
 
     return p
 
