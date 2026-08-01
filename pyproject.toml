@@ -34,7 +34,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m \"not slow\""
 markers = [
     "slow: end-to-end training smoke test (deselect with -m 'not slow')",
     "gpu: requires a CUDA device",

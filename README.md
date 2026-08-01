@@ -24,7 +24,7 @@ Capability at small scale comes from three levers, all supported here:
    on raw web scrape. Curate your corpus.
 2. **Overtraining past Chinchilla**: for inference-bound local use, train on far more
    tokens than the "compute-optimal" ratio — small models keep improving.
-3. **Distillation**: train the biggest model that fits (`base`, ~110M), then distill it
+3. **Distillation**: train the biggest model that fits (`base`, ~88M), then distill it
    into a smaller, faster student with `--teacher`.
 
 ## Setup
@@ -46,7 +46,7 @@ pico-lm tokenizer --hf roneneldan/TinyStories --vocab-size 16384 --out data\toke
 # 2. Tokenize into train/val memmaps (also copies the tokenizer into data\)
 pico-lm prepare --hf roneneldan/TinyStories --tokenizer data\tokenizer.json --out data --max-docs 500000
 
-# 3. Train (micro ≈ 22M params; a few hours on the 3050)
+# 3. Train (micro ≈ 15.7M params; a few hours on the 3050)
 pico-lm train --preset micro --data data --out runs\micro --batch-size 32 --grad-accum-steps 2 --seq-len 512
 
 # 4. Generate
@@ -66,10 +66,12 @@ counter and best-val bookkeeping intact — raise `--max-steps` to train further
 
 | preset | params | dim | layers | heads (kv) | context |
 |--------|--------|-----|--------|------------|---------|
-| nano   | ~3M    | 128 | 4      | 4 (2)      | 256     |
-| micro  | ~22M   | 384 | 6      | 6 (2)      | 512     |
-| small  | ~42M   | 512 | 8      | 8 (4)      | 1024    |
-| base   | ~110M  | 768 | 12     | 12 (4)     | 1024    |
+| nano   | ~2.9M  | 128 | 4      | 4 (2)      | 256     |
+| micro  | ~15.7M | 384 | 6      | 6 (2)      | 512     |
+| small  | ~32.0M | 512 | 8      | 8 (4)      | 1024    |
+| base   | ~88.1M | 768 | 12     | 12 (4)     | 1024    |
+
+(`pico-lm presets` prints these live, computed from the actual model.)
 
 For `base` on 6 GB, use `--batch-size 8 --grad-accum-steps 8`.
 

@@ -69,6 +69,23 @@ def test_generate_never_exceeds_context(model, cfg):
     assert out.shape[1] <= cfg.max_seq_len
 
 
+def test_top_p_near_zero_reduces_to_greedy(model, cfg):
+    """Nucleus sampling with top_p -> 0 must keep exactly the top token.
+
+    Regression guard for the classic off-by-one in the cumulative-sum boundary:
+    the code excludes token i when the *exclusive* prefix sum before it
+    (cum - probs) exceeds top_p, which always keeps the top token itself. An
+    inclusive-sum version (`cum > top_p`) would wrongly drop the top token too
+    at this threshold, leaving every logit at -inf and breaking sampling.
+    """
+    torch.manual_seed(7)
+    x = torch.randint(0, cfg.vocab_size, (1, 5))
+    greedy = model.generate(x, max_new_tokens=6, temperature=0.0)
+    torch.manual_seed(7)
+    nucleus = model.generate(x, max_new_tokens=6, temperature=1.0, top_k=None, top_p=1e-6)
+    assert torch.equal(greedy, nucleus)
+
+
 def test_loss_decreases_when_overfitting(cfg):
     torch.manual_seed(3)
     model = Transformer(cfg)

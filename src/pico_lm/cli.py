@@ -252,9 +252,7 @@ def cmd_runs(args: argparse.Namespace) -> None:
         raise SystemExit(f"{runs_dir} not found")
 
     # A run is any directory holding a checkpoint.
-    runs = sorted(
-        d for d in runs_dir.iterdir() if d.is_dir() and any(d.glob("*.pt"))
-    )
+    runs = sorted(d for d in runs_dir.iterdir() if d.is_dir() and any(d.glob("*.pt")))
     if not runs:
         print(f"no runs under {runs_dir} (a run is a directory containing *.pt)")
         return
