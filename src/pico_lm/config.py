@@ -69,6 +69,44 @@ class TrainConfig:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
+@dataclass
+class SFTConfig:
+    """Supervised fine-tuning schedule — deliberately *not* TrainConfig.
+
+    Pretraining LRs (6e-4) blow a pretrained model apart in a few hundred SFT
+    steps. Fine-tuning wants roughly an order of magnitude less, a short warmup,
+    and far fewer steps, because the dataset is small and the model is already
+    trained. Field names mirror TrainConfig so `cosine_lr` works on both.
+    """
+
+    batch_size: int = 16
+    grad_accum_steps: int = 1
+    max_len: int = 512  # per-example cap; longer examples are left-truncated
+    max_steps: int = 2000
+    lr: float = 1e-4
+    min_lr: float = 1e-5
+    warmup_steps: int = 50
+    weight_decay: float = 0.0  # small dataset: decay fights the pretrained weights
+    beta1: float = 0.9
+    beta2: float = 0.95
+    grad_clip: float = 1.0
+    eval_interval: int = 200
+    eval_iters: int = 40
+    log_interval: int = 20
+    seed: int = 1337
+    compile: bool = False
+    # behavioural evaluation during training (see pico_lm.bench)
+    bench_examples: int = 120  # held-out prompts scored by exact match at each eval
+    select_by: str = "score"  # "score" (behavioural) or "loss" — see finetune()
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> SFTConfig:
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
 # Presets sized for a 6 GB laptop GPU (RTX 3050-class).
 # Params counted with the default 16k vocab, weights tied.
 PRESETS: dict[str, ModelConfig] = {

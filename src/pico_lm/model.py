@@ -183,9 +183,21 @@ class Transformer(nn.Module):
 
     def num_params(self, non_embedding: bool = False) -> int:
         n = sum(p.numel() for p in self.parameters())
-        if non_embedding and not self.cfg.tie_weights:
-            n -= self.tok_emb.weight.numel()
+        emb = getattr(self.tok_emb, "weight", None)
+        if non_embedding and not self.cfg.tie_weights and emb is not None:
+            n -= emb.numel()
         return n
+
+    def compute_dtype(self) -> torch.dtype:
+        """Float dtype the model actually computes in.
+
+        Read from parameters/buffers rather than `tok_emb.weight`, because a
+        quantized embedding (see `pico_lm.quant`) stores int codes, not floats.
+        """
+        for t in (*self.parameters(), *self.buffers()):
+            if t.is_floating_point():
+                return t.dtype
+        return torch.float32
 
     def forward(
         self,
@@ -236,7 +248,7 @@ class Transformer(nn.Module):
             idx = idx[:, -keep:]
         max_new_tokens = min(max_new_tokens, self.cfg.max_seq_len - idx.size(1))
 
-        cache = KVCache(self.cfg, idx.size(0), device, self.tok_emb.weight.dtype)
+        cache = KVCache(self.cfg, idx.size(0), device, self.compute_dtype())
         logits, _ = self(idx, cache=cache)
         out = idx
         next_input = None
