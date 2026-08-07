@@ -152,13 +152,127 @@ def cmd_info(args: argparse.Namespace) -> None:
     print(f"tokenizer:   {ckpt.get('tokenizer_path')}")
 
 
-def cmd_quantize(args: argparse.Namespace) -> None:
-    from .export import quantize_int8
+SFT_OVERRIDES = (
+    "batch_size",
+    "grad_accum_steps",
+    "max_steps",
+    "lr",
+    "min_lr",
+    "warmup_steps",
+    "eval_interval",
+    "eval_iters",
+    "log_interval",
+    "max_len",
+    "bench_examples",
+    "seed",
+)
 
-    out = quantize_int8(args.ckpt, args.out)
-    src = Path(args.ckpt).stat().st_size / 1e6
-    dst = out.stat().st_size / 1e6
-    print(f"quantized {src:.1f}MB -> {dst:.1f}MB at {out}")
+
+def cmd_prepare_sft(args: argparse.Namespace) -> None:
+    from .sft import prepare_sft
+    from .tokenizer import PicoTokenizer
+
+    tok = PicoTokenizer.load(args.tokenizer)
+    meta = prepare_sft(
+        args.jsonl,
+        tok,
+        args.out,
+        val_fraction=args.val_fraction,
+        max_len=args.max_len,
+        seed=args.seed,
+    )
+    print(json.dumps(meta, indent=2))
+
+
+def cmd_finetune(args: argparse.Namespace) -> None:
+    from .config import SFTConfig
+    from .sft import finetune
+
+    cfg = SFTConfig()
+    for name in SFT_OVERRIDES:
+        v = getattr(args, name, None)
+        if v is not None:
+            setattr(cfg, name, v)
+    cfg.select_by = args.select_by
+    cfg.compile = args.compile
+
+    best = finetune(
+        args.sft_data,
+        args.out,
+        cfg,
+        init_from=args.init_from,
+        resume=args.resume,
+        tokenizer_path=args.tokenizer,
+        bench_jsonl=args.bench_jsonl,
+    )
+    score = best.get("score", -1.0)
+    tail = f"; best held-out exact match {score:.1%}" if score >= 0 else ""
+    print(f"done; best val loss {best['loss']:.4f}{tail}; checkpoints in {args.out}")
+
+
+def cmd_bench(args: argparse.Namespace) -> None:
+    """Behavioural evaluation — the number that decides whether a model is good."""
+    from .bench import format_report, run_bench
+    from .generate import load_for_inference
+
+    model, tok, device = load_for_inference(args.ckpt, args.tokenizer, device=args.device or None)
+    val_bin = Path(args.data) / "val.bin" if args.data else None
+    report = run_bench(
+        model,
+        tok,
+        device,
+        val_bin=val_bin,
+        instructions=args.instructions,
+        n_pairs=args.pairs,
+        n_cloze=args.cloze,
+        n_gen=args.gen,
+        n_instruct=args.instruct_examples,
+        seed=args.seed,
+        speed=not args.no_speed,
+    )
+    report["checkpoint"] = str(args.ckpt)
+    print(format_report(report, title=f"bench: {args.ckpt}"))
+
+    if report.get("genhealth", {}).get("samples"):
+        print("\nsample generations (temperature 0.8):")
+        for s in report["genhealth"]["samples"][:3]:
+            print(f"  > {s['prompt']!r}\n    {s['completion'][:220]!r}")
+    if report.get("instruct", {}).get("samples"):
+        print("\nsample instruction responses (greedy):")
+        for s in report["instruct"]["samples"]:
+            mark = "OK " if s["correct"] else "XX "
+            print(f"  {mark} {s['instruction']!r}\n      want {s['expected']!r} got {s['got']!r}")
+
+    if args.json:
+        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.json).write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"\nwrote {args.json}")
+
+
+def cmd_quantize(args: argparse.Namespace) -> None:
+    src_mb = Path(args.ckpt).stat().st_size / 1e6
+    if args.method == "dynamic":
+        from .export import quantize_int8
+
+        out = quantize_int8(args.ckpt, args.out)
+        print(f"dynamic int8 (CPU only): {src_mb:.1f}MB -> {out.stat().st_size / 1e6:.1f}MB")
+        return
+
+    from .quant import quantize_checkpoint
+
+    out, meta = quantize_checkpoint(
+        args.ckpt,
+        args.out,
+        bits=args.bits,
+        group_size=args.group_size,
+        quantize_embedding=args.quantize_embedding,
+    )
+    dst_mb = out.stat().st_size / 1e6
+    print(f"int{meta['bits']} weight-only, group={meta['group_size']}, ", end="")
+    print(f"embedding={'quantized' if meta['quantize_embedding'] else 'fp32'}")
+    print(f"{src_mb:.1f}MB -> {dst_mb:.1f}MB  ({src_mb / max(dst_mb, 1e-9):.2f}x smaller)  {out}")
+    print("\nsize alone proves nothing — measure it:")
+    print(f"  pico-lm bench --ckpt {out} --data data")
 
 
 def cmd_presets(args: argparse.Namespace) -> None:
@@ -354,9 +468,86 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--ckpt", required=True)
     i.set_defaults(fn=cmd_info)
 
-    q = sub.add_parser("quantize", help="int8-quantize a checkpoint for CPU inference")
+    ps = sub.add_parser("prepare-sft", help="tokenize instruction pairs for fine-tuning")
+    ps.add_argument("--jsonl", required=True, help='{"instruction","response"} or {"messages"}')
+    ps.add_argument("--tokenizer", default="data/tokenizer.json", help="MUST match pretraining")
+    ps.add_argument("--out", default="data_sft")
+    ps.add_argument("--val-fraction", type=float, default=0.05)
+    ps.add_argument("--max-len", type=int, default=512)
+    ps.add_argument("--seed", type=int, default=0)
+    ps.set_defaults(fn=cmd_prepare_sft)
+
+    ft = sub.add_parser("finetune", help="supervised fine-tune a pretrained checkpoint")
+    ft.add_argument("--sft-data", default="data_sft", help="dir holding sft_train/val.npz")
+    ft.add_argument("--out", default="runs/sft")
+    ft.add_argument(
+        "--init-from", help="pretrained checkpoint to start from (required unless --resume)"
+    )
+    ft.add_argument("--resume", action="store_true", help="continue an interrupted SFT run")
+    ft.add_argument("--tokenizer")
+    ft.add_argument(
+        "--bench-jsonl",
+        help="held-out instruction JSONL scored by exact match at every eval; "
+        "without it, checkpoint selection falls back to loss",
+    )
+    ft.add_argument(
+        "--select-by",
+        default="score",
+        choices=("score", "loss"),
+        help="metric that decides best.pt (default: the behavioural score)",
+    )
+    ft.add_argument("--compile", action="store_true")
+    ft.add_argument("--batch-size", type=int)
+    ft.add_argument("--grad-accum-steps", type=int)
+    ft.add_argument("--max-steps", type=int)
+    ft.add_argument("--lr", type=float)
+    ft.add_argument("--min-lr", type=float)
+    ft.add_argument("--warmup-steps", type=int)
+    ft.add_argument("--eval-interval", type=int)
+    ft.add_argument("--eval-iters", type=int)
+    ft.add_argument("--log-interval", type=int)
+    ft.add_argument("--max-len", type=int)
+    ft.add_argument("--bench-examples", type=int)
+    ft.add_argument("--seed", type=int)
+    ft.set_defaults(fn=cmd_finetune)
+
+    b = sub.add_parser("bench", help="behavioural evaluation (task scores, not loss)")
+    b.add_argument("--ckpt", required=True)
+    b.add_argument("--tokenizer")
+    b.add_argument("--data", default="data", help="dir holding val.bin ('' to skip corpus probes)")
+    b.add_argument("--instructions", help="held-out instruction JSONL for exact-match scoring")
+    b.add_argument("--pairs", type=int, default=400, help="minimal-pair items")
+    b.add_argument("--cloze", type=int, default=200, help="cloze items")
+    b.add_argument("--gen", type=int, default=24, help="free-generation prompts")
+    b.add_argument("--instruct-examples", type=int, default=200)
+    b.add_argument("--device", default="")
+    b.add_argument("--seed", type=int, default=0)
+    b.add_argument("--no-speed", action="store_true")
+    b.add_argument("--json", help="also write the full report here")
+    b.set_defaults(fn=cmd_bench)
+
+    q = sub.add_parser("quantize", help="post-training quantization of a checkpoint")
     q.add_argument("--ckpt", required=True)
     q.add_argument("--out", default="runs/quantized.pt")
+    q.add_argument("--bits", type=int, default=8, choices=(4, 8))
+    q.add_argument(
+        "--group-size",
+        type=int,
+        default=64,
+        help="weights per scale along the input dim; 0 = per output channel",
+    )
+    q.add_argument(
+        "--quantize-embedding",
+        action="store_true",
+        help="also quantize the (tied) embedding — most of the parameters in these "
+        "presets, and most of the quality loss",
+    )
+    q.add_argument(
+        "--method",
+        default="weight-only",
+        choices=("weight-only", "dynamic"),
+        help="weight-only: any device, smaller on disk. dynamic: torch int8, CPU only",
+    )
     q.set_defaults(fn=cmd_quantize)
 
     pp = sub.add_parser("presets", help="list model presets and their parameter counts")

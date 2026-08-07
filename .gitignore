@@ -5,7 +5,9 @@ __pycache__/
 .ruff_cache/
 .claude/worktrees/
 data/
+data_sft/
 runs/
 *.bin
 *.pt
+*.npz
 tokenizer.json
