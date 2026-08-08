@@ -153,6 +153,28 @@ class Block(nn.Module):
         return x
 
 
+def _packed_param_count(root: nn.Module) -> int:
+    """Weights held inside torch.ao quantized modules.
+
+    `quantize --method dynamic` replaces Linears with modules that keep their
+    int8 weight in `_packed_params`, which is not a registered Parameter. Left
+    uncounted, a dynamically quantized micro reports 6.30M for a 15.73M model —
+    so `info` would understate the checkpoint it was pointed at.
+    """
+    total = 0
+    for module in root.modules():
+        if getattr(module, "_packed_params", None) is None:
+            continue
+        for accessor in ("weight", "bias"):
+            attr = getattr(module, accessor, None)
+            if not callable(attr):
+                continue
+            tensor = attr()
+            if tensor is not None:
+                total += tensor.numel()
+    return total
+
+
 class Transformer(nn.Module):
     def __init__(self, cfg: ModelConfig) -> None:
         super().__init__()
@@ -183,8 +205,9 @@ class Transformer(nn.Module):
 
     def num_params(self, non_embedding: bool = False) -> int:
         n = sum(p.numel() for p in self.parameters())
+        n += _packed_param_count(self)
         emb = getattr(self.tok_emb, "weight", None)
-        if non_embedding and not self.cfg.tie_weights and emb is not None:
+        if non_embedding and not self.cfg.tie_weights and emb is not None and not callable(emb):
             n -= emb.numel()
         return n
 

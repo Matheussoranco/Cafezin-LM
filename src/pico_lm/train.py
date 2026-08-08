@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import math
+import pickle
 import shutil
 import time
 from pathlib import Path
@@ -129,8 +130,23 @@ def load_model(ckpt_path: str | Path, device: str = "cpu") -> tuple[Transformer,
     Quantized checkpoints carry a "quant" block describing how the Linear /
     embedding modules were replaced; dispatching here means `generate`, `chat`,
     `eval`, `info` and `bench` all accept them without knowing they exist.
+
+    `--method dynamic` is the exception: torch.ao returns a live module, so that
+    path pickles the module itself and cannot be read under weights_only=True.
+    Handled below, so both quantization methods are loadable by every consumer.
     """
-    ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=True)
+    try:
+        ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=True)
+    except pickle.UnpicklingError:
+        # `quantize --method dynamic` hands torch.ao a live module and pickles it
+        # whole, which weights_only=True refuses. It is our own artefact written
+        # by our own CLI, so retry -- but only after the safe load has refused a
+        # pickled global, never for a truncated or otherwise unreadable file.
+        ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+        model = ckpt.pop("quantized_model", None)
+        if model is None:
+            raise
+        return model.eval(), ckpt
     if isinstance(ckpt.get("quant"), dict):
         from .quant import build_quantized_shell
 

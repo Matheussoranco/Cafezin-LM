@@ -344,3 +344,82 @@ def test_score_instructions_is_deterministic(tmp_path, tok):
     assert a["exact_match"] == b["exact_match"]
     assert 0.0 <= a["exact_match"] <= 1.0
     assert a["by_task"].keys() == {"repeat"}
+
+
+def test_dynamic_quantized_checkpoint_loads_and_generates(tmp_path):
+    """`quantize --method dynamic` must produce something the CLI can read back.
+
+    The dynamic path pickles a live torch.ao module, so `weights_only=True`
+    refuses it. That made the advertised feature write a file no consumer could
+    load, and the old test only asserted the file existed.
+    """
+    from pico_lm.export import quantize_int8
+
+    torch.manual_seed(0)
+    model = _tiny_model(256)
+    src = tmp_path / "fp32.pt"
+    torch.save({"model": model.state_dict(), "model_cfg": model.cfg.to_dict(), "step": 3}, src)
+
+    out = quantize_int8(src, tmp_path / "dynamic-int8.pt")
+    assert out.exists()
+
+    reloaded, ckpt = load_model(out, device="cpu")
+    assert ckpt.get("model_cfg") is not None
+    x = torch.randint(0, 256, (1, 4))
+    generated = reloaded.generate(x, max_new_tokens=5, temperature=0.0, top_k=0, top_p=None)
+    assert generated.shape == (1, 9)
+
+
+def test_dynamic_quantized_model_reports_its_real_parameter_count(tmp_path):
+    """int8 weights live in `_packed_params`, invisible to `.parameters()`.
+
+    Counting only `.parameters()` reported a fraction of the true size — 6.30M
+    for a 15.73M micro. The count must not collapse just because the weights
+    moved into packed storage.
+
+    It does not come back exactly equal, and that is real rather than slop:
+    dynamic quantization gives the tied `lm_head` its own packed copy of the
+    embedding, so a tied model genuinely stops sharing that tensor.
+    """
+    from pico_lm.export import quantize_int8
+
+    torch.manual_seed(0)
+    model = _tiny_model(256)
+    expected = model.num_params()
+    embedding = model.tok_emb.weight.numel()
+    assert model.cfg.tie_weights
+    src = tmp_path / "fp32.pt"
+    torch.save({"model": model.state_dict(), "model_cfg": model.cfg.to_dict(), "step": 1}, src)
+
+    quantized, _ = load_model(quantize_int8(src, tmp_path / "q.pt"), device="cpu")
+    naive = sum(p.numel() for p in quantized.parameters())
+
+    assert naive < expected * 0.5, "expected .parameters() alone to miss the packed weights"
+    assert quantized.num_params() == expected + embedding
+
+
+def test_load_model_still_rejects_a_corrupt_checkpoint(tmp_path):
+    """The dynamic fallback must not turn unreadable files into silent successes.
+
+    A corrupt file raises `UnpicklingError` — the very exception the fallback
+    catches — so this pins the behaviour that the retry re-raises it instead of
+    swallowing it or returning half a model.
+    """
+    import pickle
+
+    bad = tmp_path / "truncated.pt"
+    bad.write_bytes(b"not a torch checkpoint at all")
+    with pytest.raises(pickle.UnpicklingError):
+        load_model(bad, device="cpu")
+
+
+def test_preset_parameter_counts_match_their_documented_comments():
+    """Guards the ~3M/~22M/~42M/~110M drift that shipped in config.py."""
+    from pico_lm.config import PRESETS
+
+    documented = {"nano": 2.9, "micro": 15.7, "small": 32.0, "base": 88.1}
+    for name, expected_m in documented.items():
+        actual_m = Transformer(PRESETS[name]).num_params() / 1e6
+        assert actual_m == pytest.approx(expected_m, abs=0.05), (
+            f"{name}: config.py documents {expected_m}M, architecture gives {actual_m:.2f}M"
+        )
