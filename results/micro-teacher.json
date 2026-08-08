@@ -1,0 +1,55 @@
+{
+  "val_loss": {
+    "loss": 1.554665657877922,
+    "perplexity": 4.733503650907893
+  },
+  "minimal_pairs": {
+    "accuracy": 0.989,
+    "n": 2000,
+    "chance": 0.5,
+    "by_kind": {
+      "agreement": 0.9700272479564033,
+      "article": 0.98989898989899,
+      "pronoun": 0.9916434540389972,
+      "swap": 0.9948822927328557
+    }
+  },
+  "cloze": {
+    "accuracy": 0.974,
+    "n": 1000,
+    "chance": 0.25,
+    "n_choices": 4
+  },
+  "genhealth": {
+    "distinct_2": 0.8865436780366434,
+    "unique_4gram": 0.9880677258866957,
+    "repetition_4gram": 0.01193227411330433,
+    "mean_length": 87.325,
+    "eos_rate": 0.2,
+    "samples": [
+      {
+        "prompt": "One day, a little girl named",
+        "completion": " Mia went to the park with her mom. She saw a big red ball and wanted to play with it. Mia asked her mom, \"Can I play with the big red ball?\" Her mom said, \"Yes, but be careful not to break it.\"\n\nMia started to play with the big red ball. She rolled it around the park. She had so much fun. But then, she heard a loud noise. It was a big truck. The truck came close"
+      },
+      {
+        "prompt": "John and Sarah were playing together",
+        "completion": " in the park. John felt happy, and they both laughed and played together. The sun started to set and it was time to go home.\n\nJohn and Sarah said goodbye and gave each other a hug. They knew that this day would be a great day."
+      },
+      {
+        "prompt": "The sun showed its face in",
+        "completion": " the sky, and everyone was amazed. After a while, the sun started to move again and the little girl was very happy. She and her friends all went back to their homes and had a wonderful day."
+      },
+      {
+        "prompt": "Once upon a time there was",
+        "completion": " a very kind and generous family who loved their family very much. They loved to cook and they enjoyed cooking together.\n\nOne day, the family went to a restaurant and saw that the waiter was there. He had a big, juicy steak on his plate. Everyone looked so hungry that the waiter decided to serve the steak. He took it out of the restaurant and everyone took a bite. \n\nThe steak was very hot and the waiter was very happy. He thanked the"
+      }
+    ]
+  },
+  "speed": {
+    "decode_tok_per_s": 25.20745886326988,
+    "seconds": 5.077862100035418,
+    "new_tokens": 128,
+    "device": "cuda"
+  },
+  "checkpoint": "runs\\micro\\best.pt"
+}

@@ -10,10 +10,13 @@ A from-scratch small language model stack in PyTorch, sized for a laptop GPU
 - **Your own byte-level BPE tokenizer** trained on your corpus (16k vocab by default)
 - **Training loop** — bf16 mixed precision, gradient accumulation, cosine LR with warmup,
   gradient clipping, checkpoint/resume, CSV logging
-- **Knowledge distillation** — train a `base` teacher, distill it into a smaller student
-- **Fast inference** — preallocated KV cache, top-k / top-p / temperature / repetition penalty,
-  int8 dynamic quantization for CPU
-- **Chat** — special-token chat template + SFT via chat-formatted JSONL
+- **Post-training** — supervised fine-tuning with response-masked loss, post-training
+  quantization (int8 / int4), and knowledge distillation from a larger teacher
+- **Behavioural evaluation** — `pico-lm bench` scores what the model *does* on held-out
+  data (grammaticality, cloze, generation health, exact-match instruction following),
+  with explicit chance baselines
+- **Fast inference** — preallocated KV cache, top-k / top-p / temperature / repetition penalty
+- **Chat** — special-token chat template + a real SFT path
 
 ## Why small models can be smart
 
@@ -82,30 +85,78 @@ For `base` on 6 GB, use `--batch-size 8 --grad-accum-steps 8`.
 --eval-iters --log-interval --seed`. Anything you leave out falls back to `TrainConfig`
 in `config.py`. `pico-lm train --help` is the authority.
 
-## Distillation
+## Post-training
+
+Full write-up with every measured number: **[docs/posttraining.md](docs/posttraining.md)**.
+
+### Evaluate behaviour, not loss
 
 ```powershell
-pico-lm train --preset base  --data data --out runs\base
-pico-lm train --preset small --data data --out runs\small-kd --teacher runs\base\best.pt
+pico-lm bench --ckpt runs\micro\best.pt --data data
 ```
 
-## Chat / SFT
+Four probes with explicit chance baselines — grammaticality minimal pairs (50%),
+4-way cloze (25%), free-generation degeneracy, and greedy exact-match instruction
+following. Use this for every before/after comparison. A fine-tune in this repo hit a
+training loss of 8e-6 and 100% dev accuracy while destroying the model's ability to
+write a sentence; only these probes caught it.
 
-Fine-tune on conversations (JSONL, one `{"messages": [{"role": ..., "content": ...}]}` per line),
-then chat. Pass the pretraining tokenizer explicitly so the vocabulary matches:
+### Fine-tuning
 
 ```powershell
-pico-lm prepare --chat-jsonl chats.jsonl --tokenizer data\tokenizer.json --out data_sft
-copy runs\micro\best.pt runs\micro-sft\last.pt
-pico-lm train --preset micro --data data_sft --out runs\micro-sft --resume
-pico-lm chat --ckpt runs\micro-sft\best.pt --system "You are a helpful assistant."
+python examples\make_instruct_data.py --out data_sft --train 6000 --dev 200 --test 400
+pico-lm prepare-sft --jsonl data_sft\instruct_train.jsonl --tokenizer data\tokenizer.json --out data_sft
+pico-lm finetune --sft-data data_sft --init-from runs\micro\best.pt --out runs\micro-sft `
+    --bench-jsonl data_sft\instruct_dev.jsonl --max-steps 2000 --lr 3e-4
+pico-lm chat --ckpt runs\micro-sft\best.pt
 ```
+
+Loss is masked to response tokens only, batches are example-aligned, and `best.pt` is
+selected on a held-out behavioural score rather than val loss.
+
+**Measured (micro 15.7M, held-out test):** instruction exact match **0.0% → 97.5%** —
+and cloze 98.0% → 62.0%, 4-gram repetition 0.011 → 0.833, corpus perplexity 4.7 → 903.
+The fine-tune taught the task and destroyed the language model. Bench the general
+probes, not just your task.
+
+### Quantization
+
+```powershell
+pico-lm quantize --ckpt runs\micro\best.pt --out runs\micro-int8.pt `
+    --bits 8 --group-size 64 --quantize-embedding
+pico-lm bench --ckpt runs\micro-int8.pt --data data
+```
+
+**Measured (micro 15.7M):** int8 is free — 62.96 MB → 16.28 MB (3.9x), val loss
+unchanged to four decimals, no probe moves. int4 g64 reaches 8.41 MB (7.5x) for +3.6%
+perplexity and −0.5pp exact match. Two warnings: quantization here makes decoding
+*slower* (22.4 → 17.1 → 9.7 tok/s), because weights are dequantized on every matmul —
+it buys disk and VRAM, not speed. And most of the size is the tied embedding, so
+`--quantize-embedding` is where the win is.
+
+### Distillation
+
+```powershell
+pico-lm train --preset nano --data data --out runs\nano-kd --teacher runs\micro\best.pt `
+    --seq-len 256 --batch-size 32 --grad-accum-steps 2 --max-steps 4000
+```
+
+**Measured (micro 15.7M → nano 2.9M, equal token budget vs from-scratch):** cloze
+82.5% → 85.5% (z = 1.8, marginal), 4-gram repetition 0.045 → 0.015 (3x less
+degenerate). The gain is real but small, the teacher's 97.4% cloze is not approached,
+and KD costs 2.3x the wall-clock per token.
+
+> **Sizing on a 6 GB card:** a KD step at `--batch-size 64` peaks at 8.7 GB. Windows
+> serves the overflow from system RAM instead of failing, so the run *succeeds* at
+> 7.2k tok/s. `--batch-size 32 --grad-accum-steps 2` is the same tokens/step, peaks at
+> 4.4 GB, and runs at 34.6k tok/s. Watch throughput, not exit status.
 
 ## Other commands
 
 ```powershell
-pico-lm info --ckpt runs\micro\best.pt          # params, config, training step
-pico-lm quantize --ckpt runs\micro\best.pt --out runs\micro-int8.pt   # 4x smaller, CPU inference
+pico-lm info --ckpt runs\micro\best.pt   # params, config, training step
+pico-lm eval --ckpt runs\micro\best.pt   # loss / perplexity (reference only — prefer bench)
+pico-lm runs                             # list training runs
 ```
 
 ## Tests
@@ -121,14 +172,20 @@ ruff check .
 
 ```
 src/pico_lm/
-  config.py     presets + ModelConfig/TrainConfig
+  config.py     presets + ModelConfig/TrainConfig/SFTConfig
   model.py      Transformer (RMSNorm, RoPE, GQA, SwiGLU, KVCache, generate)
   tokenizer.py  byte-level BPE + chat template
   data.py       corpus -> uint16 memmaps; local files / HF datasets / chat JSONL
   train.py      AMP training loop, cosine LR, checkpoints, distillation
+  sft.py        supervised fine-tuning: response-masked loss, behavioural selection
+  quant.py      post-training int8/int4 weight-only quantization
+  bench.py      behavioural probes (minimal pairs, cloze, generation health, exact match)
   generate.py   completion + chat REPL
-  export.py     int8 dynamic quantization
+  export.py     int8 dynamic quantization (torch.ao, CPU-only, real speedup)
   cli.py        the `pico-lm` command
+examples/       make_instruct_data.py — verifiable instruction dataset
+experiments/    the scripts that produced every number in docs/posttraining.md
+results/        their raw JSON reports
 ```
 
 ## License

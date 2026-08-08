@@ -1,0 +1,93 @@
+{
+  "val_loss": {
+    "loss": 6.738062155246735,
+    "perplexity": 843.9237570331783
+  },
+  "minimal_pairs": {
+    "accuracy": 0.9066666666666666,
+    "n": 300,
+    "chance": 0.5,
+    "by_kind": {
+      "agreement": 0.8363636363636363,
+      "article": 0.9787234042553191,
+      "pronoun": 0.8947368421052632,
+      "swap": 0.9148936170212766
+    }
+  },
+  "cloze": {
+    "accuracy": 0.66,
+    "n": 150,
+    "chance": 0.25,
+    "n_choices": 4
+  },
+  "genhealth": {
+    "distinct_2": 0.3333333333333333,
+    "unique_4gram": 0.0,
+    "repetition_4gram": 1.0,
+    "mean_length": 1.5,
+    "eos_rate": 1.0,
+    "samples": [
+      {
+        "prompt": "One day, a little girl named",
+        "completion": " Nina"
+      },
+      {
+        "prompt": "John and Sarah were playing together",
+        "completion": " with the discussing"
+      },
+      {
+        "prompt": "The sun showed its face in",
+        "completion": " the sky"
+      },
+      {
+        "prompt": "Mummy and Daddy took baby to",
+        "completion": " sleep"
+      }
+    ]
+  },
+  "instruct": {
+    "exact_match": 0.97,
+    "n": 200,
+    "by_task": {
+      "first_word": 1.0,
+      "last_word": 1.0,
+      "repeat": 1.0,
+      "reverse": 0.95,
+      "uppercase": 0.875,
+      "word_count": 1.0
+    },
+    "samples": [
+      {
+        "instruction": "Tell me the first word in: Sara kicked the blue boat",
+        "expected": "Sara",
+        "got": "Sara",
+        "correct": true
+      },
+      {
+        "instruction": "Say these words in reverse order: Zoe found the shiny duck",
+        "expected": "duck shiny the found Zoe",
+        "got": "duck shiny the found Zoe",
+        "correct": true
+      },
+      {
+        "instruction": "Count the words in: Tim and Max played with the ball",
+        "expected": "7",
+        "got": "7",
+        "correct": true
+      },
+      {
+        "instruction": "Repeat this exactly: the soft drum was near the flower",
+        "expected": "the soft drum was near the flower",
+        "got": "the soft drum was near the flower",
+        "correct": true
+      }
+    ]
+  },
+  "speed": {
+    "decode_tok_per_s": 9.576007385297515,
+    "seconds": 13.366739900026005,
+    "new_tokens": 128,
+    "device": "cuda"
+  },
+  "checkpoint": "runs\\_qsft\\int4-g64-emb.pt"
+}

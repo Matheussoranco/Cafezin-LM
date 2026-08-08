@@ -124,7 +124,21 @@ def save_checkpoint(
 
 
 def load_model(ckpt_path: str | Path, device: str = "cpu") -> tuple[Transformer, dict]:
+    """Load a checkpoint, quantized or not.
+
+    Quantized checkpoints carry a "quant" block describing how the Linear /
+    embedding modules were replaced; dispatching here means `generate`, `chat`,
+    `eval`, `info` and `bench` all accept them without knowing they exist.
+    """
     ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=True)
+    if isinstance(ckpt.get("quant"), dict):
+        from .quant import build_quantized_shell
+
+        cfg = ModelConfig.from_dict(ckpt["model_cfg"])
+        model = build_quantized_shell(cfg, ckpt["quant"])
+        state = {k.removeprefix("_orig_mod."): v for k, v in ckpt["model"].items()}
+        model.load_state_dict(state, strict=False)
+        return model.to(device).eval(), ckpt
     cfg = ModelConfig.from_dict(ckpt["model_cfg"])
     model = Transformer(cfg)
     state = {k.removeprefix("_orig_mod."): v for k, v in ckpt["model"].items()}
