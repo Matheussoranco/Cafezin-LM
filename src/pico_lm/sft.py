@@ -70,9 +70,7 @@ def read_pairs(path: str | Path) -> list[dict]:
     return records
 
 
-def encode_pair(
-    rec: dict, tok: PicoTokenizer, max_len: int
-) -> tuple[list[int], int] | None:
+def encode_pair(rec: dict, tok: PicoTokenizer, max_len: int) -> tuple[list[int], int] | None:
     """-> (token ids, prompt length). ``None`` if no response survives truncation."""
     prompt = tok.format_chat(rec["messages"], add_generation_prompt=True)
     prompt_ids = tok.encode(prompt, bos=True)
@@ -379,21 +377,33 @@ def finetune(
             with log_path.open("a", encoding="utf-8") as f:
                 f.write(f"{step},{accum:.6f},{vloss:.6f},{score:.6f},{lr:.6e}\n")
 
-            improved = (
-                score > best["score"] if select_by == "score" else vloss < best["loss"]
-            )
+            improved = score > best["score"] if select_by == "score" else vloss < best["loss"]
             if vloss < best["loss"]:
                 best["loss"] = vloss
             if bench_set and score > best["score"]:
                 best["score"] = score
             save_sft_checkpoint(
-                last_path, raw, optimizer, model_cfg, cfg, step, best,
-                str((out_dir / "tokenizer.json").resolve()), init_from,
+                last_path,
+                raw,
+                optimizer,
+                model_cfg,
+                cfg,
+                step,
+                best,
+                str((out_dir / "tokenizer.json").resolve()),
+                init_from,
             )
             if improved:
                 save_sft_checkpoint(
-                    out_dir / "best.pt", raw, optimizer, model_cfg, cfg, step, best,
-                    str((out_dir / "tokenizer.json").resolve()), init_from,
+                    out_dir / "best.pt",
+                    raw,
+                    optimizer,
+                    model_cfg,
+                    cfg,
+                    step,
+                    best,
+                    str((out_dir / "tokenizer.json").resolve()),
+                    init_from,
                 )
                 metric = f"{best['score']:.1%} EM" if select_by == "score" else f"{vloss:.4f} loss"
                 print(f"  new best ({metric}) -> best.pt")

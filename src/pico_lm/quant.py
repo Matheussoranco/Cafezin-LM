@@ -132,8 +132,7 @@ class QuantLinear(nn.Module):
 
     def extra_repr(self) -> str:
         return (
-            f"in={self.in_features}, out={self.out_features}, "
-            f"bits={self.bits}, group={self.group}"
+            f"in={self.in_features}, out={self.out_features}, bits={self.bits}, group={self.group}"
         )
 
 
@@ -252,9 +251,7 @@ def build_quantized_shell(cfg: ModelConfig, meta: dict) -> Transformer:
     return model
 
 
-def save_quantized(
-    model: Transformer, meta: dict, ckpt: dict, out_path: str | Path
-) -> Path:
+def save_quantized(model: Transformer, meta: dict, ckpt: dict, out_path: str | Path) -> Path:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(

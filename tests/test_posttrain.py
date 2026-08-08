@@ -278,9 +278,7 @@ def test_finetune_falls_back_to_loss_selection_and_says_so(tmp_path, tok, capsys
     prepare_sft(jl, tok, tmp_path / "sft", val_fraction=0.1, max_len=128)
     base = _tiny_model(tok.vocab_size)
     base_ckpt = tmp_path / "base.pt"
-    torch.save(
-        {"model": base.state_dict(), "model_cfg": base.cfg.to_dict(), "step": 0}, base_ckpt
-    )
+    torch.save({"model": base.state_dict(), "model_cfg": base.cfg.to_dict(), "step": 0}, base_ckpt)
     finetune(
         tmp_path / "sft",
         tmp_path / "out",
