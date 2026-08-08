@@ -10,11 +10,18 @@ nouns, short sentences) so that a model pretrained on TinyStories has actually
 seen the tokens involved, and a failure means "did not learn the task" rather
 than "cannot spell the words".
 
-Train and test share the word pool but never share an instance: the exact
-sentence in a test prompt is guaranteed not to appear in training. That tests
-generalization of the *instruction*, which is what SFT is supposed to buy.
+Splits share the word pool but never share an instance: the exact sentence in a
+test prompt is guaranteed not to appear in training. That tests generalization
+of the *instruction*, which is what SFT is supposed to buy.
 
-    python examples/make_instruct_data.py --out data_sft --train 6000 --test 600
+There are three splits, not two, and the reason matters. ``dev`` is scored
+during fine-tuning to choose which checkpoint to keep; ``test`` is scored once
+at the end. Selecting on the same examples you report would quietly turn the
+headline number into a training metric — the exact class of mistake this whole
+evaluation setup exists to catch.
+
+    python examples/make_instruct_data.py --out data_sft --train 6000 \
+        --dev 200 --test 400
 """
 
 from __future__ import annotations
@@ -134,24 +141,30 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="data_sft")
     ap.add_argument("--train", type=int, default=6000)
-    ap.add_argument("--test", type=int, default=600)
+    ap.add_argument("--dev", type=int, default=200, help="scored during training to pick best.pt")
+    ap.add_argument("--test", type=int, default=400, help="scored once, at the end")
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
 
-    records = build(args.train + args.test, args.seed)
-    if len(records) < args.train + args.test:
+    total = args.train + args.dev + args.test
+    records = build(total, args.seed)
+    if len(records) < total:
         raise SystemExit(f"could only build {len(records)} unique examples")
     rng = random.Random(args.seed + 1)
     rng.shuffle(records)
-    test, train = records[: args.test], records[args.test :]
+    dev = records[: args.dev]
+    test = records[args.dev : args.dev + args.test]
+    train = records[args.dev + args.test :]
 
-    # instance-level disjointness is the property the eval depends on
-    test_keys = {(r["task"], r["instruction"]) for r in test}
-    assert not any((r["task"], r["instruction"]) in test_keys for r in train)
+    # instance-level disjointness is the property every reported number depends on
+    held_out = {(r["task"], r["instruction"]) for r in dev + test}
+    assert not any((r["task"], r["instruction"]) in held_out for r in train)
+    dev_keys = {(r["task"], r["instruction"]) for r in dev}
+    assert not any((r["task"], r["instruction"]) in dev_keys for r in test)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    for name, rows in (("train", train), ("test", test)):
+    for name, rows in (("train", train), ("dev", dev), ("test", test)):
         path = out / f"instruct_{name}.jsonl"
         path.write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8"
