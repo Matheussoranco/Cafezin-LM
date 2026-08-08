@@ -20,9 +20,13 @@ $models = @(
     @{ name = "nano-scratch";   ckpt = "runs\nano-scratch\best.pt" }
 )
 
+# Sample sizes are chosen for statistical power, not speed. The teacher/student
+# gaps on the ranking probes are a couple of points; at n=200 the standard error
+# on a cloze accuracy near 85% is 2.5pp, so a 2.5pp difference is one sigma and
+# means nothing. n=1000 puts it near 1.1pp.
 foreach ($m in $models) {
     Write-Output "=== bench $($m.name) ==="
-    & $py bench --ckpt $m.ckpt --data data --pairs 400 --cloze 200 --gen 16 `
+    & $py bench --ckpt $m.ckpt --data data --pairs 2000 --cloze 1000 --gen 40 `
         --json "results\$($m.name).json" *>&1 |
         Tee-Object -FilePath "runs\logs\bench-$($m.name).log"
 }
