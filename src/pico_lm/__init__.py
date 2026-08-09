@@ -5,4 +5,4 @@ from .model import KVCache, Transformer
 from .tokenizer import PicoTokenizer
 
 __all__ = ["KVCache", "ModelConfig", "PicoTokenizer", "TrainConfig", "Transformer", "preset"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
