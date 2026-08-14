@@ -1,3 +1,5 @@
+from types import MethodType
+
 import pytest
 import torch
 
@@ -106,3 +108,52 @@ def test_loss_decreases_when_overfitting(cfg):
 
 def test_weight_tying(model):
     assert model.lm_head.weight.data_ptr() == model.tok_emb.weight.data_ptr()
+
+
+def test_gradient_checkpointing_preserves_loss_and_backprop(cfg):
+    torch.manual_seed(11)
+    plain = Transformer(cfg).train()
+    checked = Transformer(cfg).train()
+    checked.load_state_dict(plain.state_dict())
+    checked.set_gradient_checkpointing(True)
+    x = torch.randint(0, cfg.vocab_size, (2, 24))
+    y = torch.randint(0, cfg.vocab_size, (2, 24))
+
+    _, plain_loss = plain(x, y)
+    _, checked_loss = checked(x, y)
+    torch.testing.assert_close(checked_loss, plain_loss)
+    checked_loss.backward()
+    assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in checked.parameters())
+
+
+def test_batched_generation_keeps_finished_rows_at_eos(model, cfg):
+    eos_id, ordinary_id = 2, 3
+
+    def fake_forward(self, idx, targets=None, cache=None):
+        del targets
+        b, t = idx.shape
+        old_pos = cache.pos
+        logits = torch.full((b, t, cfg.vocab_size), -100.0)
+        logits[0, -1, eos_id] = 100.0
+        logits[1, -1, ordinary_id if old_pos == 0 else eos_id] = 100.0
+        cache.pos += t
+        return logits, None
+
+    original = model.forward
+    model.forward = MethodType(fake_forward, model)
+    try:
+        out = model.generate(
+            torch.ones((2, 2), dtype=torch.long),
+            max_new_tokens=4,
+            temperature=0.0,
+            eos_id=eos_id,
+        )
+    finally:
+        model.forward = original
+
+    assert out[:, 2:].tolist() == [[eos_id, eos_id], [ordinary_id, eos_id]]
+
+
+def test_model_config_rejects_invalid_rope_geometry():
+    with pytest.raises(ValueError, match="even for RoPE"):
+        ModelConfig(dim=60, n_heads=4, n_kv_heads=2)

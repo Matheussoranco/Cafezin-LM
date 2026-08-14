@@ -11,6 +11,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from .config import ModelConfig
 
@@ -65,6 +66,10 @@ class KVCache:
         self, layer: int, k: torch.Tensor, v: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         t = k.size(2)
+        if self.pos + t > self.k.size(3):
+            raise ValueError(
+                f"KV cache capacity {self.k.size(3)} exceeded by position {self.pos + t}"
+            )
         self.k[layer, :, :, self.pos : self.pos + t] = k
         self.v[layer, :, :, self.pos : self.pos + t] = v
         end = self.pos + t
@@ -190,6 +195,7 @@ class Transformer(nn.Module):
         cos, sin = precompute_rope(cfg.head_dim, cfg.max_seq_len, cfg.rope_theta)
         self.register_buffer("rope_cos", cos, persistent=False)
         self.register_buffer("rope_sin", sin, persistent=False)
+        self.gradient_checkpointing = False
 
         self.apply(self._init_weights)
         # scale residual-stream output projections (GPT-2 style)
@@ -222,6 +228,15 @@ class Transformer(nn.Module):
                 return t.dtype
         return torch.float32
 
+    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
+        """Trade extra compute for substantially lower training activation memory.
+
+        This only affects training forwards without a KV cache. It is especially
+        useful for the ``micro-long`` preset, where sequence activations dominate
+        memory even though the model itself is small.
+        """
+        self.gradient_checkpointing = enabled
+
     def forward(
         self,
         idx: torch.Tensor,
@@ -239,7 +254,10 @@ class Transformer(nn.Module):
 
         x = self.drop(self.tok_emb(idx))
         for i, block in enumerate(self.blocks):
-            x = block(x, cos, sin, cache, i)
+            if self.gradient_checkpointing and self.training and cache is None:
+                x = checkpoint(block, x, cos, sin, use_reentrant=False)
+            else:
+                x = block(x, cos, sin, cache, i)
         x = self.norm(x)
         if cache is not None:
             cache.pos += t
@@ -265,6 +283,8 @@ class Transformer(nn.Module):
     ) -> torch.Tensor:
         self.eval()
         device = idx.device
+        if idx.ndim != 2 or idx.size(1) == 0:
+            raise ValueError("idx must have shape (batch, time) with at least one token")
         # leave room for generation inside the positional window
         keep = max(1, self.cfg.max_seq_len - max_new_tokens)
         if idx.size(1) > keep:
@@ -275,6 +295,7 @@ class Transformer(nn.Module):
         logits, _ = self(idx, cache=cache)
         out = idx
         next_input = None
+        finished = torch.zeros(idx.size(0), dtype=torch.bool, device=device)
         for _ in range(max_new_tokens):
             if next_input is not None:
                 logits, _ = self(next_input, cache=cache)
@@ -310,8 +331,15 @@ class Transformer(nn.Module):
                 probs = torch.softmax(step_logits, dim=-1)
                 next_tok = torch.multinomial(probs, num_samples=1)
 
+            if eos_id is not None:
+                # Rectangular batched output requires already-finished rows to
+                # keep emitting EOS while the remaining rows finish.
+                next_tok = torch.where(
+                    finished[:, None], torch.full_like(next_tok, eos_id), next_tok
+                )
+                finished |= next_tok.squeeze(1).eq(eos_id)
             out = torch.cat([out, next_tok], dim=1)
             next_input = next_tok
-            if eos_id is not None and (next_tok == eos_id).all():
+            if eos_id is not None and finished.all():
                 break
         return out

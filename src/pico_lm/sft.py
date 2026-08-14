@@ -31,6 +31,7 @@ import numpy as np
 import torch
 
 from .config import ModelConfig, SFTConfig
+from .data import TokenDataset
 from .model import Transformer
 from .tokenizer import PicoTokenizer
 from .train import autocast_ctx, cosine_lr, load_model, pick_device, pick_dtype
@@ -254,6 +255,7 @@ def finetune(
     resume: bool = False,
     tokenizer_path: str | None = None,
     bench_jsonl: str | Path | None = None,
+    replay_data: str | Path | None = None,
 ) -> dict:
     """Fine-tune a pretrained checkpoint on instruction pairs.
 
@@ -262,6 +264,7 @@ def finetune(
     a warning says so — because selecting a fine-tune on loss alone is exactly
     how a 0.05-loss model that answers nothing correctly gets shipped.
     """
+    cfg.validate()
     device = pick_device()
     dtype = pick_dtype(device)
     torch.manual_seed(cfg.seed)
@@ -279,6 +282,10 @@ def finetune(
 
     train_ds = SFTDataset(sft_dir / "sft_train.npz", pad_id=tok.pad_id)
     val_ds = SFTDataset(sft_dir / "sft_val.npz", pad_id=tok.pad_id)
+    replay_ds = None
+    if replay_data:
+        replay_path = Path(replay_data) / "train.bin"
+        replay_ds = TokenDataset(replay_path)
 
     step = 0
     best = {"loss": float("inf"), "score": -1.0}
@@ -301,6 +308,26 @@ def finetune(
     else:
         raise SystemExit("SFT needs pretrained weights: pass --init-from <checkpoint>")
     model_cfg = model.cfg
+    if tok.vocab_size != model_cfg.vocab_size:
+        raise ValueError(
+            f"SFT tokenizer vocab {tok.vocab_size} does not match checkpoint vocab "
+            f"{model_cfg.vocab_size}"
+        )
+    if replay_data:
+        replay_meta_path = Path(replay_data) / "meta.json"
+        if replay_meta_path.exists():
+            replay_meta = json.loads(replay_meta_path.read_text(encoding="utf-8"))
+            if replay_meta.get("vocab_size") != model_cfg.vocab_size:
+                raise ValueError(
+                    "replay data and checkpoint must use the same tokenizer vocabulary"
+                )
+    longest_example = int(np.diff(train_ds.offsets).max())
+    if longest_example - 1 > model_cfg.max_seq_len:
+        raise ValueError(
+            f"SFT example length {longest_example} exceeds checkpoint context "
+            f"{model_cfg.max_seq_len}; re-run prepare-sft with a smaller --max-len"
+        )
+    model.set_gradient_checkpointing(cfg.gradient_checkpointing)
     model.train()
 
     bench_set = _bench_examples(bench_jsonl, cfg.bench_examples)
@@ -316,9 +343,10 @@ def finetune(
     if cfg.compile:
         model = torch.compile(model)
 
+    replay_desc = f" replay={cfg.replay_weight:.0%}" if replay_ds is not None else ""
     print(
         f"device={device} dtype={dtype} train={len(train_ds)} val={len(val_ds)} "
-        f"lr={cfg.lr:g} steps={cfg.max_steps} select_by={select_by}"
+        f"lr={cfg.lr:g} steps={cfg.max_steps} select_by={select_by}{replay_desc}"
     )
 
     log_path = out_dir / "sft_log.csv"
@@ -339,7 +367,14 @@ def finetune(
         for _ in range(cfg.grad_accum_steps):
             x, y = train_ds.get_batch(cfg.batch_size, device)
             with autocast_ctx(device, dtype):
-                _, loss = model(x, y)
+                _, sft_loss = model(x, y)
+                loss = sft_loss
+                if replay_ds is not None and cfg.replay_weight > 0:
+                    replay_len = min(cfg.max_len, model_cfg.max_seq_len)
+                    rx, ry = replay_ds.get_batch(cfg.batch_size, replay_len, device)
+                    _, replay_loss = model(rx, ry)
+                    loss = (1.0 - cfg.replay_weight) * sft_loss
+                    loss = loss + cfg.replay_weight * replay_loss
                 loss = loss / cfg.grad_accum_steps
             scaler.scale(loss).backward()
             accum += loss.item()

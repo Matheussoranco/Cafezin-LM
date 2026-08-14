@@ -4,6 +4,22 @@ All notable changes to Pico-LM are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A `micro-long` preset with a 4,096-token context and 100k RoPE base.
+- Opt-in activation checkpointing for pretraining and SFT.
+- Replay-regularized SFT via `--replay-data` and `--replay-weight`.
+- A code-reading and controlled-experiment learning guide.
+
+### Fixed
+
+- Batched generation now keeps independently finished rows at EOS until the
+  rest of the batch finishes.
+- Configuration validation and explicit KV-cache capacity errors catch invalid
+  experiments earlier.
+
 ## [0.2.0] — 2026-08-09 — Post-training: fine-tune, quantize, distil
 
 0.1.0 pretrained a Llama-style SLM from scratch. 0.2.0 adds the three things you

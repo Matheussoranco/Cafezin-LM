@@ -20,12 +20,26 @@ class ModelConfig:
     mlp_multiple_of: int = 64  # SwiGLU hidden dim rounded up to this
 
     def __post_init__(self) -> None:
+        if self.vocab_size <= 0 or self.dim <= 0 or self.n_layers <= 0:
+            raise ValueError("vocab_size, dim, and n_layers must be positive")
+        if self.n_heads <= 0 or self.n_kv_heads <= 0:
+            raise ValueError("n_heads and n_kv_heads must be positive")
         if self.dim % self.n_heads != 0:
             raise ValueError(f"dim {self.dim} not divisible by n_heads {self.n_heads}")
         if self.n_heads % self.n_kv_heads != 0:
             raise ValueError(
                 f"n_heads {self.n_heads} not divisible by n_kv_heads {self.n_kv_heads}"
             )
+        if self.head_dim % 2:
+            raise ValueError(f"head_dim {self.head_dim} must be even for RoPE")
+        if self.max_seq_len <= 0:
+            raise ValueError("max_seq_len must be positive")
+        if self.rope_theta <= 0:
+            raise ValueError("rope_theta must be positive")
+        if not 0.0 <= self.dropout < 1.0:
+            raise ValueError("dropout must be in [0, 1)")
+        if self.mlp_multiple_of <= 0:
+            raise ValueError("mlp_multiple_of must be positive")
 
     @property
     def head_dim(self) -> int:
@@ -57,9 +71,25 @@ class TrainConfig:
     log_interval: int = 20
     seed: int = 1337
     compile: bool = False  # torch.compile (Triton is unavailable on Windows CUDA)
+    gradient_checkpointing: bool = False  # recompute blocks to make long contexts fit
     # knowledge distillation (teacher must share the tokenizer/vocab)
     kd_alpha: float = 0.5  # weight of KD loss vs cross-entropy when a teacher is set
     kd_temperature: float = 2.0
+
+    def validate(self) -> None:
+        for name in ("batch_size", "grad_accum_steps", "seq_len", "max_steps"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.lr <= 0 or self.min_lr < 0 or self.min_lr > self.lr:
+            raise ValueError("learning rates must satisfy 0 <= min_lr <= lr")
+        if self.warmup_steps < 0:
+            raise ValueError("warmup_steps must be non-negative")
+        if self.eval_interval <= 0 or self.eval_iters <= 0 or self.log_interval <= 0:
+            raise ValueError("evaluation and logging intervals must be positive")
+        if not 0.0 <= self.kd_alpha <= 1.0:
+            raise ValueError("kd_alpha must be in [0, 1]")
+        if self.kd_temperature <= 0:
+            raise ValueError("kd_temperature must be positive")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -95,9 +125,28 @@ class SFTConfig:
     log_interval: int = 20
     seed: int = 1337
     compile: bool = False
+    gradient_checkpointing: bool = False
+    # With --replay-data, retain this fraction of ordinary language-model loss.
+    # Rehearsing pretraining text reduces catastrophic forgetting on narrow SFT data.
+    replay_weight: float = 0.1
     # behavioural evaluation during training (see pico_lm.bench)
     bench_examples: int = 120  # held-out prompts scored by exact match at each eval
     select_by: str = "score"  # "score" (behavioural) or "loss" — see finetune()
+
+    def validate(self) -> None:
+        for name in ("batch_size", "grad_accum_steps", "max_len", "max_steps"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.lr <= 0 or self.min_lr < 0 or self.min_lr > self.lr:
+            raise ValueError("learning rates must satisfy 0 <= min_lr <= lr")
+        if self.warmup_steps < 0:
+            raise ValueError("warmup_steps must be non-negative")
+        if self.eval_interval <= 0 or self.eval_iters <= 0 or self.log_interval <= 0:
+            raise ValueError("evaluation and logging intervals must be positive")
+        if not 0.0 <= self.replay_weight < 1.0:
+            raise ValueError("replay_weight must be in [0, 1)")
+        if self.select_by not in {"score", "loss"}:
+            raise ValueError("select_by must be 'score' or 'loss'")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -118,6 +167,16 @@ PRESETS: dict[str, ModelConfig] = {
     "small": ModelConfig(dim=512, n_layers=8, n_heads=8, n_kv_heads=4, max_seq_len=1024),
     # 88.1M params — GPT-2-class capacity, the most this GPU trains comfortably
     "base": ModelConfig(dim=768, n_layers=12, n_heads=12, n_kv_heads=4, max_seq_len=1024),
+    # 15.7M params with a 4096-token window. Use activation checkpointing and
+    # a small micro-batch on 6 GB GPUs; parameter count is unchanged by context.
+    "micro-long": ModelConfig(
+        dim=384,
+        n_layers=6,
+        n_heads=6,
+        n_kv_heads=2,
+        max_seq_len=4096,
+        rope_theta=100000.0,
+    ),
 }
 
 

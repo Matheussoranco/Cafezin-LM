@@ -85,6 +85,7 @@ def cmd_train(args: argparse.Namespace) -> None:
         if v is not None:
             setattr(train_cfg, name, v)
     train_cfg.compile = args.compile
+    train_cfg.gradient_checkpointing = args.gradient_checkpointing
 
     # explicit flag > tokenizer recorded by `prepare` > conventional location
     tokenizer_path = args.tokenizer or str(data_dir / meta.get("tokenizer", "tokenizer.json"))
@@ -164,6 +165,7 @@ SFT_OVERRIDES = (
     "log_interval",
     "max_len",
     "bench_examples",
+    "replay_weight",
     "seed",
 )
 
@@ -195,6 +197,7 @@ def cmd_finetune(args: argparse.Namespace) -> None:
             setattr(cfg, name, v)
     cfg.select_by = args.select_by
     cfg.compile = args.compile
+    cfg.gradient_checkpointing = args.gradient_checkpointing
 
     best = finetune(
         args.sft_data,
@@ -204,6 +207,7 @@ def cmd_finetune(args: argparse.Namespace) -> None:
         resume=args.resume,
         tokenizer_path=args.tokenizer,
         bench_jsonl=args.bench_jsonl,
+        replay_data=args.replay_data,
     )
     score = best.get("score", -1.0)
     tail = f"; best held-out exact match {score:.1%}" if score >= 0 else ""
@@ -432,6 +436,11 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--resume", action="store_true", help="continue from <out>/last.pt")
     tr.add_argument("--teacher", help="checkpoint of a larger Pico-LM model to distill from")
     tr.add_argument("--compile", action="store_true")
+    tr.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="recompute transformer blocks to reduce activation memory (slower)",
+    )
     tr.add_argument("--seq-len", type=int)
     tr.add_argument("--batch-size", type=int)
     tr.add_argument("--grad-accum-steps", type=int)
@@ -497,6 +506,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="metric that decides best.pt (default: the behavioural score)",
     )
     ft.add_argument("--compile", action="store_true")
+    ft.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="recompute transformer blocks to reduce activation memory",
+    )
+    ft.add_argument(
+        "--replay-data",
+        help="pretraining data dir containing train.bin; mixes LM loss to reduce forgetting",
+    )
+    ft.add_argument(
+        "--replay-weight",
+        type=float,
+        default=0.1,
+        help="fraction of the SFT objective assigned to replay loss (default 0.1)",
+    )
     ft.add_argument("--batch-size", type=int)
     ft.add_argument("--grad-accum-steps", type=int)
     ft.add_argument("--max-steps", type=int)

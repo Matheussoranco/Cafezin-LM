@@ -100,6 +100,19 @@ a fraction of the pretraining corpus into the SFT batches — plus stopping much
 earlier. If you fine-tune with this pipeline, **bench the general probes, not
 just your task.**
 
+Replay is now implemented directly. It mixes response-masked SFT loss with an
+ordinary next-token batch from the original prepared corpus:
+
+```powershell
+pico-lm finetune --sft-data data_sft --init-from runs\micro\best.pt `
+    --out runs\micro-sft-replay --bench-jsonl data_sft\instruct_dev.jsonl `
+    --replay-data data --replay-weight 0.1 --lr 1e-4
+```
+
+The destructive result above is the SFT-only baseline, not a measured claim
+about the new replay setting. Run both, benchmark both, and treat replay weight
+and stopping step as experimental variables.
+
 ---
 
 ## 2. Quantization

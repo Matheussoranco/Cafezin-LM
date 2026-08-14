@@ -5,9 +5,14 @@
 A from-scratch small language model stack in PyTorch, sized for a laptop GPU
 (tuned for an RTX 3050 6 GB). Same architecture family as Llama/Mistral, scaled down:
 
+New to language models? Follow the **[code-reading and experiment guide](docs/learning-guide.md)**
+to understand the tensor flow, long-context tradeoffs, and useful controlled experiments.
+
 - **Decoder-only transformer** — RMSNorm (pre-norm), rotary position embeddings (RoPE),
   grouped-query attention (GQA), SwiGLU MLP, weight tying, flash attention via PyTorch SDPA
 - **Your own byte-level BPE tokenizer** trained on your corpus (16k vocab by default)
+- **Long-context option** — `micro-long` uses a 4,096-token window, GQA, a
+  100k RoPE base, and activation checkpointing to stay practical on small GPUs
 - **Training loop** — bf16 mixed precision, gradient accumulation, cosine LR with warmup,
   gradient clipping, checkpoint/resume, CSV logging
 - **Post-training** — supervised fine-tuning with response-masked loss, post-training
@@ -73,17 +78,29 @@ counter and best-val bookkeeping intact — raise `--max-steps` to train further
 | micro  | ~15.7M | 384 | 6      | 6 (2)      | 512     |
 | small  | ~32.0M | 512 | 8      | 8 (4)      | 1024    |
 | base   | ~88.1M | 768 | 12     | 12 (4)     | 1024    |
+| micro-long | ~15.7M | 384 | 6 | 6 (2) | 4096 |
 
 (`pico-lm presets` prints these live, computed from the actual model.)
 
-For `base` on 6 GB, use `--batch-size 8 --grad-accum-steps 8`.
+For `base` on 6 GB, use `--batch-size 8 --grad-accum-steps 8`. For a real
+long-context experiment, start conservatively:
+
+```powershell
+pico-lm train --preset micro-long --data data --out runs\micro-long `
+    --seq-len 4096 --batch-size 1 --grad-accum-steps 32 --gradient-checkpointing
+```
+
+Context length is not free: attention compute grows quadratically with sequence
+length. Train at 512–1024 first to validate a corpus and schedule before spending
+compute on 4096-token windows.
 
 ### Training flags
 
 `train` takes `--preset --data --out --tokenizer --resume --teacher --compile --seq-len
 --batch-size --grad-accum-steps --max-steps --lr --min-lr --warmup-steps --eval-interval
 --eval-iters --log-interval --seed`. Anything you leave out falls back to `TrainConfig`
-in `config.py`. `pico-lm train --help` is the authority.
+in `config.py`. Add `--gradient-checkpointing` when sequence activations do not fit.
+`pico-lm train --help` is the authority.
 
 ## Post-training
 
@@ -107,12 +124,16 @@ write a sentence; only these probes caught it.
 python examples\make_instruct_data.py --out data_sft --train 6000 --dev 200 --test 400
 pico-lm prepare-sft --jsonl data_sft\instruct_train.jsonl --tokenizer data\tokenizer.json --out data_sft
 pico-lm finetune --sft-data data_sft --init-from runs\micro\best.pt --out runs\micro-sft `
-    --bench-jsonl data_sft\instruct_dev.jsonl --max-steps 2000 --lr 3e-4
+    --bench-jsonl data_sft\instruct_dev.jsonl --replay-data data --replay-weight 0.1 `
+    --max-steps 2000 --lr 1e-4
 pico-lm chat --ckpt runs\micro-sft\best.pt
 ```
 
 Loss is masked to response tokens only, batches are example-aligned, and `best.pt` is
-selected on a held-out behavioural score rather than val loss.
+selected on a held-out behavioural score rather than val loss. Replay mixes 10% ordinary
+pretraining loss into the objective so a narrow instruction dataset is less likely to
+erase the base model's language ability. It costs an extra forward pass; omit
+`--replay-data` for the original SFT-only experiment.
 
 **Measured (micro 15.7M, held-out test):** instruction exact match **0.0% → 97.5%** —
 and cloze 98.0% → 62.0%, 4-gram repetition 0.011 → 0.833, corpus perplexity 4.7 → 903.
@@ -162,9 +183,9 @@ pico-lm runs                             # list training runs
 ## Tests
 
 ```powershell
-pytest                  # 22 fast tests: model math, KV-cache equivalence, tokenizer, data
-pytest -m slow          # 4 more: full tokenizer -> prepare -> train -> resume -> generate runs
-pytest -m ""            # everything (26)
+pytest                  # 51 fast tests: model, cache, tokenizer, data, SFT, quantization
+pytest -m slow          # 5 end-to-end tokenizer -> prepare -> train -> resume -> generate runs
+pytest -m ""            # everything (56)
 ruff check .
 ```
 

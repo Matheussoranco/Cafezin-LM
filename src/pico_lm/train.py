@@ -204,6 +204,7 @@ def train(
             f"data vocab {meta['vocab_size']} exceeds model vocab {model_cfg.vocab_size}"
         )
     train_cfg.seq_len = min(train_cfg.seq_len, model_cfg.max_seq_len)
+    train_cfg.validate()
     datasets = {
         "train": TokenDataset(data_dir / "train.bin"),
         "val": TokenDataset(data_dir / "val.bin"),
@@ -235,6 +236,8 @@ def train(
             print(f"--resume requested but {ckpt_path} does not exist; starting from scratch")
         model = Transformer(model_cfg).to(device)
         optimizer = make_optimizer(model, train_cfg, device)
+    train_cfg.seq_len = min(train_cfg.seq_len, model.cfg.max_seq_len)
+    model.set_gradient_checkpointing(train_cfg.gradient_checkpointing)
     model.train()
 
     teacher = None
@@ -254,7 +257,7 @@ def train(
     tokens_per_step = train_cfg.batch_size * train_cfg.grad_accum_steps * train_cfg.seq_len
     print(
         f"device={device} dtype={dtype} params={n_params / 1e6:.1f}M "
-        f"tokens/step={tokens_per_step:,}"
+        f"tokens/step={tokens_per_step:,} checkpointing={train_cfg.gradient_checkpointing}"
     )
 
     scaler = torch.amp.GradScaler(enabled=(dtype == torch.float16))

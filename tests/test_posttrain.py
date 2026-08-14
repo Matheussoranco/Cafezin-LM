@@ -279,14 +279,19 @@ def test_finetune_falls_back_to_loss_selection_and_says_so(tmp_path, tok, capsys
     base = _tiny_model(tok.vocab_size)
     base_ckpt = tmp_path / "base.pt"
     torch.save({"model": base.state_dict(), "model_cfg": base.cfg.to_dict(), "step": 0}, base_ckpt)
+    replay = tmp_path / "replay"
+    prepare(tok, replay, val_fraction=0.1, inputs=[str(tmp_path / "corpus.txt")])
     finetune(
         tmp_path / "sft",
         tmp_path / "out",
         SFTConfig(batch_size=4, max_steps=2, eval_interval=2, eval_iters=1, warmup_steps=1),
         init_from=str(base_ckpt),
         tokenizer_path=str(tmp_path / "tokenizer.json"),
+        replay_data=replay,
     )
-    assert "falling back to loss-based selection" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "falling back to loss-based selection" in out
+    assert "replay=10%" in out
 
 
 # --------------------------------------------------------------------------- #
@@ -423,3 +428,13 @@ def test_preset_parameter_counts_match_their_documented_comments():
         assert actual_m == pytest.approx(expected_m, abs=0.05), (
             f"{name}: config.py documents {expected_m}M, architecture gives {actual_m:.2f}M"
         )
+
+
+def test_long_context_preset_keeps_micro_parameter_count():
+    from pico_lm.config import PRESETS
+
+    regular = Transformer(PRESETS["micro"])
+    long = Transformer(PRESETS["micro-long"])
+    assert long.cfg.max_seq_len == 4096
+    assert long.cfg.rope_theta > regular.cfg.rope_theta
+    assert long.num_params() == regular.num_params()
