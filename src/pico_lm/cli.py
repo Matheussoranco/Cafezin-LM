@@ -95,6 +95,7 @@ def cmd_train(args: argparse.Namespace) -> None:
         args.data,
         args.out,
         resume=args.resume,
+        init_from=args.init_from,
         teacher_ckpt=args.teacher,
         tokenizer_path=tokenizer_path,
     )
@@ -434,6 +435,10 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--out", default="runs/small")
     tr.add_argument("--tokenizer", help="tokenizer to copy into the run dir")
     tr.add_argument("--resume", action="store_true", help="continue from <out>/last.pt")
+    tr.add_argument(
+        "--init-from",
+        help="start with compatible weights but a fresh optimizer (supports context extension)",
+    )
     tr.add_argument("--teacher", help="checkpoint of a larger Pico-LM model to distill from")
     tr.add_argument("--compile", action="store_true")
     tr.add_argument(

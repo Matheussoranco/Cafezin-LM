@@ -65,6 +65,7 @@ Start with:
 
 ```powershell
 pico-lm train --preset micro-long --data data --out runs\micro-long `
+    --init-from runs\micro\best.pt `
     --seq-len 4096 --batch-size 1 --grad-accum-steps 32 `
     --gradient-checkpointing --max-steps 20000
 ```
@@ -73,6 +74,10 @@ Activation checkpointing discards intermediate block activations and recomputes
 them during backward. It lowers memory use but increases step time. If 4,096
 still does not fit, reduce `--seq-len`; gradient accumulation recovers the token
 batch size but cannot reduce the memory of one sequence.
+
+`--init-from` is different from `--resume`: it keeps compatible learned weights
+but builds the requested context/RoPE configuration and resets the optimizer and
+schedule. `--resume` restores the exact prior architecture, optimizer, and step.
 
 Long context only becomes useful when training examples contain dependencies at
 that distance. Padding short stories to 4,096 tokens spends compute without

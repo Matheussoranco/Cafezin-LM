@@ -9,6 +9,8 @@ All notable changes to Pico-LM are documented here. The format follows
 ### Added
 
 - A `micro-long` preset with a 4,096-token context and 100k RoPE base.
+- Compatible checkpoint initialization with a fresh optimizer, including
+  `micro` to `micro-long` context extension.
 - Opt-in activation checkpointing for pretraining and SFT.
 - Replay-regularized SFT via `--replay-data` and `--replay-weight`.
 - A code-reading and controlled-experiment learning guide.

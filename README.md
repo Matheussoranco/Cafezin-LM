@@ -90,13 +90,17 @@ pico-lm train --preset micro-long --data data --out runs\micro-long `
     --seq-len 4096 --batch-size 1 --grad-accum-steps 32 --gradient-checkpointing
 ```
 
+To extend an already-trained compatible `micro` instead of starting over, add
+`--init-from runs\micro\best.pt`. This copies learned weights into the long-context
+architecture and intentionally starts a fresh optimizer and step counter.
+
 Context length is not free: attention compute grows quadratically with sequence
 length. Train at 512–1024 first to validate a corpus and schedule before spending
 compute on 4096-token windows.
 
 ### Training flags
 
-`train` takes `--preset --data --out --tokenizer --resume --teacher --compile --seq-len
+`train` takes `--preset --data --out --tokenizer --resume --init-from --teacher --compile --seq-len
 --batch-size --grad-accum-steps --max-steps --lr --min-lr --warmup-steps --eval-interval
 --eval-iters --log-interval --seed`. Anything you leave out falls back to `TrainConfig`
 in `config.py`. Add `--gradient-checkpointing` when sequence activations do not fit.

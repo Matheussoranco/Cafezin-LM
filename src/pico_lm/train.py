@@ -185,9 +185,12 @@ def train(
     data_dir: str | Path,
     out_dir: str | Path,
     resume: bool = False,
+    init_from: str | Path | None = None,
     teacher_ckpt: str | None = None,
     tokenizer_path: str | None = None,
 ) -> float:
+    if resume and init_from:
+        raise ValueError("--resume and --init-from are mutually exclusive")
     device = pick_device()
     dtype = pick_dtype(device)
     torch.manual_seed(train_cfg.seed)
@@ -231,6 +234,32 @@ def train(
                 "nothing to do (raise --max-steps to continue)"
             )
             return best_val
+    elif init_from:
+        source, source_ckpt = load_model(init_from, device)
+        source_cfg = source.cfg
+        architecture = ("vocab_size", "dim", "n_layers", "n_heads", "n_kv_heads")
+        mismatches = [
+            f"{name}: {getattr(source_cfg, name)} != {getattr(model_cfg, name)}"
+            for name in architecture
+            if getattr(source_cfg, name) != getattr(model_cfg, name)
+        ]
+        if mismatches:
+            raise ValueError(
+                "--init-from checkpoint is not weight-compatible with the requested model: "
+                + ", ".join(mismatches)
+            )
+        # RoPE buffers are deliberately non-persistent. Building the requested
+        # shell first lets a trained model adopt a larger context window and a
+        # different RoPE base while retaining every learned parameter.
+        model = Transformer(model_cfg).to(device)
+        model.load_state_dict(source.state_dict())
+        del source
+        optimizer = make_optimizer(model, train_cfg, device)
+        print(
+            f"initialised from {init_from} (source step {source_ckpt.get('step')}); "
+            f"fresh optimizer, context {source_cfg.max_seq_len} -> {model_cfg.max_seq_len}, "
+            f"rope_theta {source_cfg.rope_theta:g} -> {model_cfg.rope_theta:g}"
+        )
     else:
         if resume:
             print(f"--resume requested but {ckpt_path} does not exist; starting from scratch")

@@ -3,10 +3,12 @@
 from pathlib import Path
 
 import pytest
+import torch
 
 from pico_lm.config import ModelConfig, TrainConfig
 from pico_lm.data import iter_texts, prepare
 from pico_lm.generate import complete, load_for_inference
+from pico_lm.model import Transformer
 from pico_lm.tokenizer import PicoTokenizer
 from pico_lm.train import cosine_lr, load_model, train
 
@@ -112,3 +114,46 @@ def test_cosine_lr_schedule():
     assert cosine_lr(100, cfg) == pytest.approx(cfg.min_lr)
     # no warmup must not divide by zero
     assert cosine_lr(0, TrainConfig(warmup_steps=0, max_steps=10)) > 0
+
+
+def test_init_from_extends_context_with_fresh_training_run(tmp_path):
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(TEXT, encoding="utf-8")
+    data = tmp_path / "data"
+    tok = PicoTokenizer.train(
+        iter_texts(inputs=[str(corpus)]), vocab_size=512, save_path=data / "tokenizer.json"
+    )
+    prepare(tok, data, val_fraction=0.1, inputs=[str(corpus)])
+
+    source_cfg, _ = _tiny_cfgs(tok.vocab_size)
+    source = Transformer(source_cfg)
+    source_path = tmp_path / "source.pt"
+    torch.save(
+        {
+            "model": source.state_dict(),
+            "model_cfg": source_cfg.to_dict(),
+            "step": 123,
+        },
+        source_path,
+    )
+
+    target_cfg = ModelConfig.from_dict(source_cfg.to_dict())
+    target_cfg.max_seq_len = 128
+    target_cfg.rope_theta = 100_000.0
+    train_cfg = TrainConfig(
+        batch_size=2,
+        grad_accum_steps=1,
+        seq_len=128,
+        max_steps=1,
+        warmup_steps=1,
+        eval_interval=1,
+        eval_iters=1,
+        log_interval=1,
+    )
+    out = tmp_path / "extended"
+    train(target_cfg, train_cfg, data, out, init_from=source_path)
+    extended, ckpt = load_model(out / "last.pt")
+
+    assert ckpt["step"] == 1  # fresh schedule, not source step 124
+    assert extended.cfg.max_seq_len == 128
+    assert extended.cfg.rope_theta == 100_000.0
