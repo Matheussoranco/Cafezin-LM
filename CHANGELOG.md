@@ -14,6 +14,8 @@ All notable changes to Pico-LM are documented here. The format follows
 - Opt-in activation checkpointing for pretraining and SFT.
 - Replay-regularized SFT via `--replay-data` and `--replay-weight`.
 - A code-reading and controlled-experiment learning guide.
+- Reproducible results from a 163.84M-token long-context continuation, including
+  controlled 512-token loss comparisons and honest behavioral regressions.
 
 ### Fixed
 

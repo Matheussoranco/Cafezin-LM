@@ -7,6 +7,8 @@ A from-scratch small language model stack in PyTorch, sized for a laptop GPU
 
 New to language models? Follow the **[code-reading and experiment guide](docs/learning-guide.md)**
 to understand the tensor flow, long-context tradeoffs, and useful controlled experiments.
+The completed 4,096-token continuation is documented in
+**[long-context results](docs/long-context-results.md)** with raw behavioral reports.
 
 - **Decoder-only transformer** — RMSNorm (pre-norm), rotary position embeddings (RoPE),
   grouped-query attention (GQA), SwiGLU MLP, weight tying, flash attention via PyTorch SDPA

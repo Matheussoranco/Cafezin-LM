@@ -1,0 +1,93 @@
+{
+  "val_loss": {
+    "loss": 1.5515392124652863,
+    "perplexity": 4.718727720238952
+  },
+  "minimal_pairs": {
+    "accuracy": 0.9875,
+    "n": 400,
+    "chance": 0.5,
+    "by_kind": {
+      "agreement": 0.9605263157894737,
+      "article": 1.0,
+      "pronoun": 0.9868421052631579,
+      "swap": 0.9946808510638298
+    }
+  },
+  "cloze": {
+    "accuracy": 0.98,
+    "n": 200,
+    "chance": 0.25,
+    "n_choices": 4
+  },
+  "genhealth": {
+    "distinct_2": 0.8785971003898636,
+    "unique_4gram": 0.9843253968253968,
+    "repetition_4gram": 0.01567460317460323,
+    "mean_length": 80.83333333333333,
+    "eos_rate": 0.25,
+    "samples": [
+      {
+        "prompt": "One day, a little girl named",
+        "completion": " Lucy walked up to the river. She was so happy to see the river that she wanted to help.\n\nLucy said, \"Hi, I'm Lucy. Do you want to help me? I am lost and I can't find my way back home.\"\n\nHMei was very glad to have Lucy's help. So they started to look for Lucy's home. They searched high and low, but they couldn't find it.\n\nAfter a long time"
+      },
+      {
+        "prompt": "John and Sarah were playing together",
+        "completion": " all day long. They were both so happy and the day was going well."
+      },
+      {
+        "prompt": "The sun showed its face in",
+        "completion": " the sky that was always bright and beautiful. \n\nAnd so the day ended, as the sun rose in the sky and the stars twinkled in the night sky."
+      },
+      {
+        "prompt": "Once upon a time there was",
+        "completion": " a special girl. She had a big smile on her face and a special symbol in her hand.\n\nOne day, the girl went to a very special place and she was so excited. She saw a big, happy rainbow. She wanted to share the special surprise with all her friends.\n\nSo she ran over to the rainbow and gave it a big hug. Then she shared the special gift she had made with the other children. Everyone was so happy.\n\n"
+      }
+    ]
+  },
+  "instruct": {
+    "exact_match": 0.0,
+    "n": 200,
+    "by_task": {
+      "first_word": 0.0,
+      "last_word": 0.0,
+      "repeat": 0.0,
+      "reverse": 0.0,
+      "uppercase": 0.0,
+      "word_count": 0.0
+    },
+    "samples": [
+      {
+        "instruction": "Tell me the first word in: Sara kicked the blue boat",
+        "expected": "Sara",
+        "got": "was a little girl who loved to play. She was always so excited to go outside and explore. One day, she was playing in the garden when she saw",
+        "correct": false
+      },
+      {
+        "instruction": "Say these words in reverse order: Zoe found the shiny duck",
+        "expected": "duck shiny the found Zoe",
+        "got": "was a little girl who loved to play. She was always so excited to go outside and explore. One day, she was playing in the garden when she saw",
+        "correct": false
+      },
+      {
+        "instruction": "Count the words in: Tim and Max played with the ball",
+        "expected": "7",
+        "got": "was a little girl who loved to play. She was always so excited when she was outside and loved to explore. One day, she was playing in the garden",
+        "correct": false
+      },
+      {
+        "instruction": "Repeat this exactly: the soft drum was near the flower",
+        "expected": "the soft drum was near the flower",
+        "got": "was a little girl who loved to play. She was always so excited to go outside and play with her friends. One day, she was playing in the garden",
+        "correct": false
+      }
+    ]
+  },
+  "speed": {
+    "decode_tok_per_s": 190.69049026529584,
+    "seconds": 0.6712447999998403,
+    "new_tokens": 128,
+    "device": "cuda"
+  },
+  "checkpoint": "runs\\micro-long-continued\\best.pt"
+}
