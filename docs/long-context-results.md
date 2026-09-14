@@ -1,5 +1,9 @@
 # Long-context continuation results
 
+Historical experiment. The new [audit evaluation](audit-corrections.md) adds a
+passkey probe: the extended checkpoint scored 0/45, including short and long
+windows. Its ability to accept 4096 tokens is not evidence of successful retrieval.
+
 Measured on 2026-08-20 on an RTX 3050 Laptop GPU (6 GB). Raw behavioral
 reports are in `results/micro-base-current.json` and `results/micro-long.json`.
 

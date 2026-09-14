@@ -213,6 +213,7 @@ def score_minimal_pairs(
         "n": len(meta),
         "chance": 0.5,
         "by_kind": {k: sum(v) / len(v) for k, v in sorted(per_kind.items())},
+        "items": items,
     }
 
 
@@ -225,6 +226,8 @@ def build_cloze(
     n_choices: int = 4,
     seed: int = 0,
 ) -> list[dict]:
+    if n_choices < 2 or ctx_tokens < 1 or cont_tokens < 1 or n_items < 0:
+        raise ValueError("invalid cloze dimensions")
     rng = random.Random(seed)
     encoded = [tok.encode(d) for d in docs]
     usable = [e for e in encoded if len(e) >= ctx_tokens + cont_tokens]
@@ -234,11 +237,10 @@ def build_cloze(
     for i, e in enumerate(usable[:n_items]):
         ctx = e[:ctx_tokens]
         true = e[ctx_tokens : ctx_tokens + cont_tokens]
-        choices = [true]
-        while len(choices) < n_choices:
-            cand = pool[rng.randrange(len(pool))]
-            if cand != true:
-                choices.append(cand)
+        alternatives = list(dict.fromkeys(tuple(c) for c in pool if c != true))
+        if len(alternatives) < n_choices - 1:
+            raise ValueError("not enough distinct continuations for cloze choices")
+        choices = [true, *[list(c) for c in rng.sample(alternatives, n_choices - 1)]]
         order = list(range(n_choices))
         rng.shuffle(order)
         items.append(
@@ -270,6 +272,7 @@ def score_cloze(model: Transformer, tok: PicoTokenizer, items: list[dict], devic
         "n": len(items),
         "chance": 1.0 / n_choices,
         "n_choices": n_choices,
+        "items": items,
     }
 
 
@@ -315,14 +318,16 @@ def generation_health(
         if not gen:
             continue
         distinct2.append(_ngram_stats(gen, 2))
-        unique4.append(_ngram_stats(gen, 4))
+        if len(gen) >= 4:
+            unique4.append(_ngram_stats(gen, 4))
         lengths.append(len(gen))
         if len(samples) < 4:
             samples.append({"prompt": p, "completion": tok.decode(gen)})
     return {
         "distinct_2": float(np.mean(distinct2)) if distinct2 else 0.0,
         "unique_4gram": float(np.mean(unique4)) if unique4 else 0.0,
-        "repetition_4gram": 1.0 - (float(np.mean(unique4)) if unique4 else 0.0),
+        "repetition_4gram": 1.0 - float(np.mean(unique4)) if unique4 else 0.0,
+        "repetition_eligible_samples": len(unique4),
         "mean_length": float(np.mean(lengths)) if lengths else 0.0,
         "eos_rate": finished / max(1, len(prompts)),
         "samples": samples,
@@ -343,17 +348,20 @@ def load_instruction_examples(path: str | Path) -> list[dict]:
             rec = json.loads(line)
             if "messages" in rec:
                 msgs = rec["messages"]
-                prompt_msgs = [m for m in msgs if m["role"] != "assistant"]
-                target = next(m["content"] for m in msgs if m["role"] == "assistant")
+                last = max(i for i, m in enumerate(msgs) if m["role"] == "assistant")
+                prompt_msgs = msgs[:last]
+                target = msgs[last]["content"]
             else:
                 prompt_msgs = [{"role": "user", "content": rec["instruction"]}]
                 target = rec["response"]
+                if rec.get("system"):
+                    prompt_msgs.insert(0, {"role": "system", "content": rec["system"]})
             out.append({"messages": prompt_msgs, "target": target, "task": rec.get("task", "all")})
     return out
 
 
 def normalize_answer(s: str) -> str:
-    return re.sub(r"\s+", " ", s.strip().strip(".!?,").lower())
+    return re.sub(r"\s+", " ", s.strip().strip(".!?,"))
 
 
 @torch.no_grad()
@@ -422,6 +430,10 @@ def measure_speed(
     new_tokens: int = 128,
     repeats: int = 3,
 ) -> dict:
+    if prompt_tokens < 1 or new_tokens < 1 or repeats < 1 or model.cfg.max_seq_len < 2:
+        raise ValueError("speed benchmark requires positive dimensions and context >= 2")
+    new_tokens = min(new_tokens, model.cfg.max_seq_len - 1)
+    prompt_tokens = min(prompt_tokens, model.cfg.max_seq_len - new_tokens)
     model.eval()
     vocab = model.cfg.vocab_size
     x = torch.randint(0, vocab, (1, prompt_tokens), device=device)
@@ -436,12 +448,14 @@ def measure_speed(
         if device.startswith("cuda"):
             torch.cuda.synchronize()
         times.append(time.perf_counter() - t0)
-    best = min(times)
+    best = float(np.median(times))
     return {
         "decode_tok_per_s": new_tokens / best,
         "seconds": best,
         "new_tokens": new_tokens,
         "device": device,
+        "timings": times,
+        "aggregation": "median; elapsed time includes prompt prefill",
     }
 
 

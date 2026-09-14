@@ -1,5 +1,12 @@
 # Post-training: fine-tuning, quantization, distillation
 
+Historical measurements: the September audit corrected case-insensitive instruction
+scoring, short-output repetition, and duplicate cloze distractors. In particular,
+the old SFT repetition value 0.833 is an invalid repetition estimate: outputs shorter
+than four tokens were counted as fully repetitive. The loss increase and premature
+EOS remain evidence of forgetting. See [audit corrections](audit-corrections.md)
+for new reports; do not compare old and new cloze scores as model improvements.
+
 Three things you can do to a pretrained Pico-LM checkpoint, and what each one
 actually measured on this hardware (RTX 3050 6 GB, Windows).
 
@@ -161,8 +168,9 @@ compression ratio is inflated ~3x by Adam moments.
 
 ### Three things worth stating plainly
 
-**int8 is free.** Loss unchanged to four decimals on both models; no probe
-moves. 3.97x smaller on micro, 3.9x on nano. This is the default.
+**int8 has small loss changes in these runs.** Micro loss rounds to the same
+four decimals; nano changes from 2.2461 to 2.2467. Generation diversity also changes.
+Storage is about 3.9x smaller. This is the default.
 
 **Quantization here makes inference *slower*, not faster.** micro goes
 22.4 → 17.1 (int8) → 9.7 tok/s (int4). Weights are dequantized on every matmul,
@@ -217,7 +225,7 @@ pico-lm train --preset nano --data data --out runs\nano-kd `
 ```
 
 KL divergence on temperature-softened logits plus the ordinary cross-entropy
-term: `loss = (1 - kd_alpha) * CE + kd_alpha * T^2 * KL(student || teacher)`,
+term: `loss = (1 - kd_alpha) * CE + kd_alpha * T^2 * KL(teacher || student)`,
 with `kd_alpha` and `kd_temperature` in `TrainConfig` (defaults 0.5 and 2.0).
 
 **Their training losses are not comparable.** The KD student optimizes a blend

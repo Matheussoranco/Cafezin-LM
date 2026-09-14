@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import json
 import math
-import pickle
 import shutil
 import time
 from pathlib import Path
@@ -16,6 +15,7 @@ import torch.nn.functional as F
 from .config import ModelConfig, TrainConfig
 from .data import TokenDataset
 from .model import Transformer
+from .provenance import capture_rng, manifest, restore_rng
 
 
 def pick_device() -> str:
@@ -119,6 +119,11 @@ def save_checkpoint(
             "step": step,
             "best_val": best_val,
             "tokenizer_path": tokenizer_path,
+            "rng_state": capture_rng(),
+            "scaler": getattr(model, "_training_scaler", None).state_dict()
+            if getattr(model, "_training_scaler", None) is not None
+            else {},
+            "provenance": getattr(model, "_provenance", None),
         },
         path,
     )
@@ -131,21 +136,16 @@ def load_model(ckpt_path: str | Path, device: str = "cpu") -> tuple[Transformer,
     embedding modules were replaced; dispatching here means `generate`, `chat`,
     `eval`, `info` and `bench` all accept them without knowing they exist.
 
-    `--method dynamic` is the exception: torch.ao returns a live module, so that
-    path pickles the module itself and cannot be read under weights_only=True.
-    Handled below, so both quantization methods are loadable by every consumer.
+    Dynamic exports store a state dictionary and rebuild their CPU shell locally.
+    Legacy pickled modules are deliberately rejected; re-export original FP weights.
     """
-    try:
-        ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=True)
-    except pickle.UnpicklingError:
-        # `quantize --method dynamic` hands torch.ao a live module and pickles it
-        # whole, which weights_only=True refuses. It is our own artefact written
-        # by our own CLI, so retry -- but only after the safe load has refused a
-        # pickled global, never for a truncated or otherwise unreadable file.
-        ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-        model = ckpt.pop("quantized_model", None)
-        if model is None:
-            raise
+    ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=True)
+    if ckpt.get("format") == "dynamic-int8-state-v1":
+        if device != "cpu":
+            raise ValueError("dynamic int8 checkpoints require device='cpu'")
+        model = Transformer(ModelConfig.from_dict(ckpt["model_cfg"])).eval()
+        model = torch.ao.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+        model.load_state_dict(ckpt["model"])
         return model.eval(), ckpt
     if isinstance(ckpt.get("quant"), dict):
         from .quant import build_quantized_shell
@@ -153,7 +153,7 @@ def load_model(ckpt_path: str | Path, device: str = "cpu") -> tuple[Transformer,
         cfg = ModelConfig.from_dict(ckpt["model_cfg"])
         model = build_quantized_shell(cfg, ckpt["quant"])
         state = {k.removeprefix("_orig_mod."): v for k, v in ckpt["model"].items()}
-        model.load_state_dict(state, strict=False)
+        model.load_state_dict(state)
         return model.to(device).eval(), ckpt
     cfg = ModelConfig.from_dict(ckpt["model_cfg"])
     model = Transformer(cfg)
@@ -290,11 +290,24 @@ def train(
     )
 
     scaler = torch.amp.GradScaler(enabled=(dtype == torch.float16))
+    raw_model = getattr(model, "_orig_mod", model)
+    raw_model._training_scaler = scaler
+    raw_model._provenance = manifest(
+        [data_dir / "train.bin", data_dir / "val.bin", tokenizer_path, init_from, teacher_ckpt],
+        model=model_cfg.to_dict(),
+        training=train_cfg.to_dict(),
+        device=device,
+    )
+    if resume and ckpt_path.exists():
+        if ckpt.get("scaler"):
+            scaler.load_state_dict(ckpt["scaler"])
+        restore_rng(ckpt.get("rng_state"))
     log_path = out_dir / "log.csv"
     if not log_path.exists():
         log_path.write_text("step,loss,lr,tok_per_s\n", encoding="utf-8")
 
-    t0 = time.time()
+    t0 = time.perf_counter()
+    n_logged = 0
     running_loss = 0.0
     while step < train_cfg.max_steps:
         lr = cosine_lr(step, train_cfg)
@@ -324,17 +337,19 @@ def train(
         scaler.update()
         step += 1
         running_loss += loss_accum
+        n_logged += 1
 
         if step % train_cfg.log_interval == 0:
-            dt = time.time() - t0
-            tok_s = tokens_per_step * train_cfg.log_interval / dt
-            avg = running_loss / train_cfg.log_interval
+            dt = max(time.perf_counter() - t0, 1e-9)
+            tok_s = tokens_per_step * n_logged / dt
+            avg = running_loss / n_logged
             print(f"step {step:6d} | loss {avg:.4f} | lr {lr:.2e} | {tok_s:,.0f} tok/s")
             with log_path.open("a", encoding="utf-8") as f:
                 f.write(f"{step},{avg:.6f},{lr:.6e},{tok_s:.0f}\n")
-            running_loss, t0 = 0.0, time.time()
+            running_loss, n_logged, t0 = 0.0, 0, time.perf_counter()
 
         if step % train_cfg.eval_interval == 0 or step == train_cfg.max_steps:
+            eval_start = time.perf_counter()
             losses = estimate_loss(model, datasets, train_cfg, device, dtype)
             print(f"eval @ {step}: train {losses['train']:.4f} | val {losses['val']:.4f}")
             raw = getattr(model, "_orig_mod", model)
@@ -365,6 +380,6 @@ def train(
                     tokenizer_path,
                 )
                 print(f"  new best val {best_val:.4f} -> best.pt")
-            t0 = time.time()
+            t0 += time.perf_counter() - eval_start
 
     return best_val

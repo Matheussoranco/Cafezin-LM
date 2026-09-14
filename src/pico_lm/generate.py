@@ -14,7 +14,10 @@ from .train import load_model, pick_device
 def load_for_inference(
     ckpt_path: str | Path, tokenizer_path: str | Path | None = None, device: str | None = None
 ) -> tuple[Transformer, PicoTokenizer, str]:
-    device = device or pick_device()
+    if device is None:
+        metadata = torch.load(str(ckpt_path), map_location="cpu", weights_only=True)
+        device = "cpu" if metadata.get("format") == "dynamic-int8-state-v1" else pick_device()
+        del metadata
     model, ckpt = load_model(ckpt_path, device)
     model.eval()
     candidates = [

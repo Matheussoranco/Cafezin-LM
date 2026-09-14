@@ -1,9 +1,13 @@
-# Pico-LM — a small, highly capable language model, trained and run locally
+# Pico-LM — a local language-model learning and experiment stack
 
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
 
 A from-scratch small language model stack in PyTorch, sized for a laptop GPU
 (tuned for an RTX 3050 6 GB). Same architecture family as Llama/Mistral, scaled down:
+
+See the [September audit corrections and validation](docs/audit-corrections.md)
+for checkpoint compatibility, corrected evaluation metrics, external evaluation,
+and the limits of exact resume. Historical reports below predate those corrections.
 
 New to language models? Follow the **[code-reading and experiment guide](docs/learning-guide.md)**
 to understand the tensor flow, long-context tradeoffs, and useful controlled experiments.
@@ -154,8 +158,8 @@ pico-lm quantize --ckpt runs\micro\best.pt --out runs\micro-int8.pt `
 pico-lm bench --ckpt runs\micro-int8.pt --data data
 ```
 
-**Measured (micro 15.7M):** int8 is free — 62.96 MB → 16.28 MB (3.9x), val loss
-unchanged to four decimals, no probe moves. int4 g64 reaches 8.41 MB (7.5x) for +3.6%
+**Measured (micro 15.7M):** int8 reduces storage — 62.96 MB → 16.28 MB (3.9x), val loss
+unchanged to four decimals; generation diversity changes. int4 g64 reaches 8.41 MB (7.5x) for +5.7%
 perplexity and −0.5pp exact match. Two warnings: quantization here makes decoding
 *slower* (22.4 → 17.1 → 9.7 tok/s), because weights are dequantized on every matmul —
 it buys disk and VRAM, not speed. And most of the size is the tied embedding, so
@@ -189,9 +193,9 @@ pico-lm runs                             # list training runs
 ## Tests
 
 ```powershell
-pytest                  # 51 fast tests: model, cache, tokenizer, data, SFT, quantization
+pytest                  # fast tests (including CUDA checks when available)
 pytest -m slow          # 5 end-to-end tokenizer -> prepare -> train -> resume -> generate runs
-pytest -m ""            # everything (56)
+pytest -m ""            # everything, including end-to-end and available CUDA checks
 ruff check .
 ```
 

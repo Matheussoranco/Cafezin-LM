@@ -1,14 +1,13 @@
 [project]
 name = "pico-lm"
 version = "0.2.0"
-description = "A small, highly capable language model you can train and run locally"
+description = "A local language-model learning and experiment stack"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "CC-BY-NC-SA-4.0" }
 authors = [{ name = "Matheus Soranzo", email = "matheussoranco@gmail.com" }]
 keywords = ["llm", "transformer", "language-model", "pytorch", "from-scratch", "local-llm"]
 classifiers = [
-    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]

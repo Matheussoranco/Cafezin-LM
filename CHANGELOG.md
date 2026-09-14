@@ -6,6 +6,19 @@ All notable changes to Pico-LM are documented here. The format follows
 
 ## [Unreleased]
 
+### September audit corrections
+
+- Restricted checkpoint loading throughout the CLI; new dynamic-int8 exports
+  serialize state dictionaries. Legacy pickled modules must be re-exported.
+- RNG and AMP scaler state in training/SFT checkpoints, source/data fingerprints,
+  effective configurations and environment metadata in new results.
+- Distinct cloze distractors with bounded failure, correct multi-turn references,
+  case-sensitive instruction matching and short-output repetition accounting.
+- Configuration validation, strict quantized state loading and monotonic training timers.
+- Windows and Linux end-to-end CI, local CUDA/4096-token regression coverage,
+  plus external-corpus and seeded passkey evaluation with measured negative results.
+- Removed the misleading proprietary-license classifier; license terms unchanged.
+
 ### Added
 
 - A `micro-long` preset with a 4,096-token context and 100k RoPE base.

@@ -78,14 +78,24 @@ def cmd_train(args: argparse.Namespace) -> None:
         model_cfg.max_seq_len = args.seq_len
 
     train_cfg = TrainConfig()
+    if args.resume and (Path(args.out) / "last.pt").exists():
+        import torch
+
+        from .config import ModelConfig
+
+        saved = torch.load(Path(args.out) / "last.pt", map_location="cpu", weights_only=True)
+        model_cfg = ModelConfig.from_dict(saved["model_cfg"])
+        train_cfg = TrainConfig.from_dict(saved["train_cfg"])
     if args.seq_len:
         train_cfg.seq_len = args.seq_len
     for name in TRAIN_OVERRIDES:
         v = getattr(args, name)
         if v is not None:
             setattr(train_cfg, name, v)
-    train_cfg.compile = args.compile
-    train_cfg.gradient_checkpointing = args.gradient_checkpointing
+    if args.compile is not None:
+        train_cfg.compile = args.compile
+    if args.gradient_checkpointing is not None:
+        train_cfg.gradient_checkpointing = args.gradient_checkpointing
 
     # explicit flag > tokenizer recorded by `prepare` > conventional location
     tokenizer_path = args.tokenizer or str(data_dir / meta.get("tokenizer", "tokenizer.json"))
@@ -192,13 +202,21 @@ def cmd_finetune(args: argparse.Namespace) -> None:
     from .sft import finetune
 
     cfg = SFTConfig()
+    if args.resume and (Path(args.out) / "last.pt").exists():
+        import torch
+
+        saved = torch.load(Path(args.out) / "last.pt", map_location="cpu", weights_only=True)
+        cfg = SFTConfig.from_dict(saved["sft_cfg"])
     for name in SFT_OVERRIDES:
         v = getattr(args, name, None)
         if v is not None:
             setattr(cfg, name, v)
-    cfg.select_by = args.select_by
-    cfg.compile = args.compile
-    cfg.gradient_checkpointing = args.gradient_checkpointing
+    if args.select_by is not None:
+        cfg.select_by = args.select_by
+    if args.compile is not None:
+        cfg.compile = args.compile
+    if args.gradient_checkpointing is not None:
+        cfg.gradient_checkpointing = args.gradient_checkpointing
 
     best = finetune(
         args.sft_data,
@@ -236,6 +254,19 @@ def cmd_bench(args: argparse.Namespace) -> None:
         speed=not args.no_speed,
     )
     report["checkpoint"] = str(args.ckpt)
+    from .provenance import manifest, tokenizer_hash
+
+    report["provenance"] = manifest(
+        [args.ckpt, val_bin, args.instructions],
+        seed=args.seed,
+        model=model.cfg.to_dict(),
+        device=device,
+        tokenizer_sha256=tokenizer_hash(tok),
+        pairs=args.pairs,
+        cloze=args.cloze,
+        gen=args.gen,
+        instruct_examples=args.instruct_examples,
+    )
     print(format_report(report, title=f"bench: {args.ckpt}"))
 
     if report.get("genhealth", {}).get("samples"):
@@ -318,8 +349,11 @@ def cmd_presets(args: argparse.Namespace) -> None:
 
 
 def cmd_eval(args: argparse.Namespace) -> None:
+    import torch
+
     from .config import TrainConfig
     from .data import TokenDataset
+    from .provenance import manifest
     from .train import estimate_loss, load_model, pick_device, pick_dtype
 
     data_dir = Path(args.data)
@@ -341,6 +375,8 @@ def cmd_eval(args: argparse.Namespace) -> None:
         raise SystemExit(f"no train.bin/val.bin under {data_dir} — run `pico-lm prepare` first")
 
     dtype = pick_dtype(device)
+    cfg.validate()
+    torch.manual_seed(args.seed)
     losses = estimate_loss(model, datasets, cfg, device, dtype)
 
     import math
@@ -357,6 +393,13 @@ def cmd_eval(args: argparse.Namespace) -> None:
                 {
                     "checkpoint": str(args.ckpt),
                     "step": ckpt.get("step"),
+                    "provenance": manifest(
+                        [args.ckpt, data_dir / "train.bin", data_dir / "val.bin"],
+                        seed=args.seed,
+                        config=cfg.to_dict(),
+                        model=model.cfg.to_dict(),
+                        device=device,
+                    ),
                     "losses": losses,
                     "perplexity": {k: math.exp(min(v, 20)) for k, v in losses.items()},
                 },
@@ -389,7 +432,7 @@ def cmd_runs(args: argparse.Namespace) -> None:
         try:
             import torch
 
-            meta = torch.load(probe, map_location="cpu", weights_only=False)
+            meta = torch.load(probe, map_location="cpu", weights_only=True)
             step = str(meta.get("step", "?"))
             best_val = meta.get("best_val")
             best = f"{best_val:.4f}" if isinstance(best_val, (int, float)) else "?"
@@ -440,10 +483,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="start with compatible weights but a fresh optimizer (supports context extension)",
     )
     tr.add_argument("--teacher", help="checkpoint of a larger Pico-LM model to distill from")
-    tr.add_argument("--compile", action="store_true")
+    tr.add_argument("--compile", action=argparse.BooleanOptionalAction, default=None)
     tr.add_argument(
         "--gradient-checkpointing",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="recompute transformer blocks to reduce activation memory (slower)",
     )
     tr.add_argument("--seq-len", type=int)
@@ -506,14 +550,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ft.add_argument(
         "--select-by",
-        default="score",
+        default=None,
         choices=("score", "loss"),
         help="metric that decides best.pt (default: the behavioural score)",
     )
-    ft.add_argument("--compile", action="store_true")
+    ft.add_argument("--compile", action=argparse.BooleanOptionalAction, default=None)
     ft.add_argument(
         "--gradient-checkpointing",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="recompute transformer blocks to reduce activation memory",
     )
     ft.add_argument(
@@ -523,7 +568,7 @@ def build_parser() -> argparse.ArgumentParser:
     ft.add_argument(
         "--replay-weight",
         type=float,
-        default=0.1,
+        default=None,
         help="fraction of the SFT objective assigned to replay loss (default 0.1)",
     )
     ft.add_argument("--batch-size", type=int)
@@ -588,6 +633,7 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--ckpt", required=True)
     e.add_argument("--data", default="data", help="directory holding train.bin / val.bin")
     e.add_argument("--iters", type=int, default=100, help="batches per split")
+    e.add_argument("--seed", type=int, default=0)
     e.add_argument("--batch-size", type=int, default=16)
     e.add_argument("--seq-len", type=int, default=0, help="0 = the model's max_seq_len")
     e.add_argument("--device", default="", help="cuda / cpu (default: auto)")

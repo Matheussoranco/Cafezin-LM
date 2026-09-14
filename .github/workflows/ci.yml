@@ -32,18 +32,19 @@ jobs:
         run: pip install "ruff==0.15.2"
 
       - name: Ruff lint
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ experiments/
 
       - name: Ruff format check
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ experiments/
 
   test:
     name: Test Suite (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11"]
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -62,10 +63,9 @@ jobs:
       - name: Install package and dev dependencies
         run: pip install -e ".[dev]"
 
-      # `slow` covers the end-to-end training runs; they work on CPU but are
-      # minutes of compute, so keep them out of the default job.
+      # Include end-to-end training on both supported operating systems.
       - name: Run tests
-        run: pytest -m "not slow" --tb=short -q
+        run: pytest -m "not gpu" --tb=short -q
 
   slow:
     name: End-to-end training smoke test

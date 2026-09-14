@@ -333,8 +333,8 @@ def test_sequence_logprobs_ignores_right_padding():
 
 
 def test_normalize_answer_is_forgiving_about_formatting():
-    assert normalize_answer("  The Cat.  ") == normalize_answer("the cat")
-    assert normalize_answer("A  B") == "a b"
+    assert normalize_answer("  The Cat.  ") == normalize_answer("The Cat")
+    assert normalize_answer("A  B") == "A B"
     assert normalize_answer("7") != normalize_answer("8")
 
 

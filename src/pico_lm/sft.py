@@ -33,6 +33,7 @@ import torch
 from .config import ModelConfig, SFTConfig
 from .data import TokenDataset
 from .model import Transformer
+from .provenance import capture_rng, manifest, restore_rng
 from .tokenizer import PicoTokenizer
 from .train import autocast_ctx, cosine_lr, load_model, pick_device, pick_dtype
 
@@ -73,6 +74,8 @@ def read_pairs(path: str | Path) -> list[dict]:
 
 def encode_pair(rec: dict, tok: PicoTokenizer, max_len: int) -> tuple[list[int], int] | None:
     """-> (token ids, prompt length). ``None`` if no response survives truncation."""
+    if max_len < 2:
+        raise ValueError("max_len must be at least 2")
     prompt = tok.format_chat(rec["messages"], add_generation_prompt=True)
     prompt_ids = tok.encode(prompt, bos=True)
     response_ids = [*tok.encode(rec["response"]), tok.eos_id]
@@ -101,6 +104,10 @@ def prepare_sft(
     Unlike `prepare`, examples keep their boundaries: each is stored with the
     offset where its response begins, which is what the loss mask needs.
     """
+    if not math.isfinite(val_fraction) or not 0 < val_fraction < 1:
+        raise ValueError("val_fraction must be finite and in (0, 1)")
+    if max_len < 2 or tok.vocab_size > 65535:
+        raise ValueError("max_len must be >= 2 and vocab_size <= 65535")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     records = read_pairs(jsonl)
@@ -139,6 +146,12 @@ def prepare_sft(
         )
     tok.save(out / "tokenizer.json")
     meta["tokenizer"] = "tokenizer.json"
+    meta["provenance"] = manifest(
+        [jsonl, out / "tokenizer.json", out / "sft_train.npz", out / "sft_val.npz"],
+        max_len=max_len,
+        val_fraction=val_fraction,
+        seed=seed,
+    )
     (out / "sft_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return meta
 
@@ -242,6 +255,9 @@ def save_sft_checkpoint(
             "tokenizer_path": tokenizer_path,
             "init_from": init_from,
             "stage": "sft",
+            "rng_state": capture_rng(),
+            "scaler": model._training_scaler.state_dict(),
+            "provenance": model._provenance,
         },
         path,
     )
@@ -354,8 +370,32 @@ def finetune(
         log_path.write_text("step,train_loss,val_loss,score,lr\n", encoding="utf-8")
 
     scaler = torch.amp.GradScaler(enabled=(dtype == torch.float16))
-    t0, running, n_logged = time.time(), 0.0, 0
-    history: list[dict] = []
+    raw_model = getattr(model, "_orig_mod", model)
+    raw_model._training_scaler = scaler
+    raw_model._provenance = manifest(
+        [
+            sft_dir / "sft_train.npz",
+            sft_dir / "sft_val.npz",
+            src_tok,
+            init_from,
+            bench_jsonl,
+            Path(replay_data) / "train.bin" if replay_data else None,
+        ],
+        model=model_cfg.to_dict(),
+        training=cfg.to_dict(),
+        device=device,
+    )
+    if resume and last_path.exists():
+        if ckpt.get("scaler"):
+            scaler.load_state_dict(ckpt["scaler"])
+        restore_rng(ckpt.get("rng_state"))
+    t0, running, n_logged = time.perf_counter(), 0.0, 0
+    history_path = out_dir / "sft_history.json"
+    history: list[dict] = (
+        json.loads(history_path.read_text(encoding="utf-8"))["history"]
+        if resume and history_path.exists()
+        else []
+    )
 
     while step < cfg.max_steps:
         lr = cosine_lr(step, cfg)
@@ -388,14 +428,15 @@ def finetune(
         n_logged += 1
 
         if step % cfg.log_interval == 0:
-            dt = time.time() - t0
+            dt = max(time.perf_counter() - t0, 1e-9)
             print(
                 f"step {step:5d} | loss {running / n_logged:.4f} | lr {lr:.2e} | "
-                f"{cfg.log_interval / dt:.1f} steps/s"
+                f"{n_logged / dt:.1f} steps/s"
             )
-            running, n_logged, t0 = 0.0, 0, time.time()
+            running, n_logged, t0 = 0.0, 0, time.perf_counter()
 
         if step % cfg.eval_interval == 0 or step == cfg.max_steps:
+            eval_start = time.perf_counter()
             raw = getattr(model, "_orig_mod", model)
             vloss = masked_val_loss(raw, val_ds, cfg, device, dtype)
             score = float("nan")
@@ -442,7 +483,7 @@ def finetune(
                 )
                 metric = f"{best['score']:.1%} EM" if select_by == "score" else f"{vloss:.4f} loss"
                 print(f"  new best ({metric}) -> best.pt")
-            t0 = time.time()
+            t0 += time.perf_counter() - eval_start
 
     (out_dir / "sft_history.json").write_text(
         json.dumps({"history": history, "best": best, "select_by": select_by}, indent=2),

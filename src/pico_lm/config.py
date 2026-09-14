@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
+
+
+def _finite_config(cfg):
+    for name, value in asdict(cfg).items():
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
 
 
 @dataclass
@@ -20,6 +27,7 @@ class ModelConfig:
     mlp_multiple_of: int = 64  # SwiGLU hidden dim rounded up to this
 
     def __post_init__(self) -> None:
+        _finite_config(self)
         if self.vocab_size <= 0 or self.dim <= 0 or self.n_layers <= 0:
             raise ValueError("vocab_size, dim, and n_layers must be positive")
         if self.n_heads <= 0 or self.n_kv_heads <= 0:
@@ -77,6 +85,7 @@ class TrainConfig:
     kd_temperature: float = 2.0
 
     def validate(self) -> None:
+        _finite_config(self)
         for name in ("batch_size", "grad_accum_steps", "seq_len", "max_steps"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -134,9 +143,12 @@ class SFTConfig:
     select_by: str = "score"  # "score" (behavioural) or "loss" — see finetune()
 
     def validate(self) -> None:
+        _finite_config(self)
         for name in ("batch_size", "grad_accum_steps", "max_len", "max_steps"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
+        if self.max_len < 2:
+            raise ValueError("max_len must be at least 2")
         if self.lr <= 0 or self.min_lr < 0 or self.min_lr > self.lr:
             raise ValueError("learning rates must satisfy 0 <= min_lr <= lr")
         if self.warmup_steps < 0:

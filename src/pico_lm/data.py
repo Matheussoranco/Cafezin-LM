@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -93,7 +94,9 @@ def _val_stride(val_fraction: float) -> int:
     and — together with always holding out the first document — guarantees a
     non-empty validation split for any corpus with at least two documents.
     """
-    if val_fraction <= 0:
+    if not math.isfinite(val_fraction) or not 0 <= val_fraction <= 0.5:
+        raise ValueError("val_fraction must be finite and in [0, 0.5]")
+    if val_fraction == 0:
         return 0
     return max(2, round(1.0 / min(val_fraction, 0.5)))
 
@@ -159,6 +162,8 @@ def prepare(
     # keep the tokenizer with the data so checkpoints stay self-describing
     tokenizer.save(out / "tokenizer.json")
 
+    from .provenance import manifest
+
     meta = {
         "vocab_size": tokenizer.vocab_size,
         "n_docs": n_docs,
@@ -166,6 +171,11 @@ def prepare(
         "val_tokens": counts["val"],
         "dtype": "uint16",
         "tokenizer": "tokenizer.json",
+        "provenance": manifest(
+            [out / "train.bin", out / "val.bin", out / "tokenizer.json"],
+            source=source_kwargs,
+            val_fraction=val_fraction,
+        ),
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return meta

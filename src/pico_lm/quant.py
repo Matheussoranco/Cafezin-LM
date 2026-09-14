@@ -262,6 +262,7 @@ def save_quantized(model: Transformer, meta: dict, ckpt: dict, out_path: str | P
             "step": ckpt.get("step"),
             "best_val": ckpt.get("best_val"),
             "tokenizer_path": ckpt.get("tokenizer_path"),
+            "source_provenance": ckpt.get("provenance"),
         },
         out_path,
     )
@@ -277,7 +278,7 @@ def load_quantized(ckpt_path: str | Path, device: str = "cpu") -> tuple[Transfor
     cfg = ModelConfig.from_dict(ckpt["model_cfg"])
     model = build_quantized_shell(cfg, ckpt["quant"])
     state = {k.removeprefix("_orig_mod."): v for k, v in ckpt["model"].items()}
-    model.load_state_dict(state, strict=False)
+    model.load_state_dict(state)
     return model.to(device).eval(), ckpt
 
 
@@ -298,6 +299,11 @@ def quantize_checkpoint(
         "quantize_embedding": quantize_embedding,
         "method": "weight-only-symmetric",
     }
+    from .provenance import manifest
+
+    meta["provenance"] = manifest(
+        [ckpt_path], bits=bits, group_size=group_size, quantize_embedding=quantize_embedding
+    )
     quantize_model(model, bits, group_size, quantize_embedding)
     out = save_quantized(model, meta, ckpt, out_path)
     return out, meta
