@@ -96,6 +96,8 @@ def cmd_train(args: argparse.Namespace) -> None:
         train_cfg.compile = args.compile
     if args.gradient_checkpointing is not None:
         train_cfg.gradient_checkpointing = args.gradient_checkpointing
+    if args.fused is not None:
+        train_cfg.fused = args.fused
 
     # explicit flag > tokenizer recorded by `prepare` > conventional location
     tokenizer_path = args.tokenizer or str(data_dir / meta.get("tokenizer", "tokenizer.json"))
@@ -217,6 +219,8 @@ def cmd_finetune(args: argparse.Namespace) -> None:
         cfg.compile = args.compile
     if args.gradient_checkpointing is not None:
         cfg.gradient_checkpointing = args.gradient_checkpointing
+    if args.fused is not None:
+        cfg.fused = args.fused
 
     best = finetune(
         args.sft_data,
@@ -227,6 +231,7 @@ def cmd_finetune(args: argparse.Namespace) -> None:
         tokenizer_path=args.tokenizer,
         bench_jsonl=args.bench_jsonl,
         replay_data=args.replay_data,
+        confirm_no_replay=args.allow_no_replay,
     )
     score = best.get("score", -1.0)
     tail = f"; best held-out exact match {score:.1%}" if score >= 0 else ""
@@ -235,7 +240,7 @@ def cmd_finetune(args: argparse.Namespace) -> None:
 
 def cmd_bench(args: argparse.Namespace) -> None:
     """Behavioural evaluation — the number that decides whether a model is good."""
-    from .bench import format_report, run_bench
+    from .bench import check_ppl_regression, format_report, run_bench, val_loss
     from .generate import load_for_inference
 
     model, tok, device = load_for_inference(args.ckpt, args.tokenizer, device=args.device or None)
@@ -253,6 +258,28 @@ def cmd_bench(args: argparse.Namespace) -> None:
         seed=args.seed,
         speed=not args.no_speed,
     )
+    # PPL-regression guard: compare against a base checkpoint (or a known ppl)
+    # so an SFT/quant step that wrecks the LM trips a loud warning (>20%).
+    baseline_ppl: float | None = args.baseline_ppl
+    if args.base_ckpt and val_bin and Path(val_bin).exists():
+        from .train import load_model as _load_model
+
+        base_model, _ = _load_model(args.base_ckpt, device="cpu")
+        baseline_ppl = val_loss(base_model, val_bin, "cpu")["perplexity"]
+        print(f"baseline {args.base_ckpt}: ppl {baseline_ppl:.2f}")
+    current_ppl = report.get("val_loss", {}).get("perplexity")
+    if baseline_ppl is not None and current_ppl is not None:
+        check = check_ppl_regression(baseline_ppl, current_ppl)
+        report["ppl_regression"] = {
+            "baseline_ppl": baseline_ppl,
+            "current_ppl": current_ppl,
+            "ratio": check["ratio"],
+            "threshold": 0.20,
+            "degraded": check["degraded"],
+        }
+        print(check["message"])
+    elif args.base_ckpt or args.baseline_ppl is not None:
+        print("warning: ppl-regression check needs --data val.bin on both sides; skipped")
     report["checkpoint"] = str(args.ckpt)
     from .provenance import manifest, tokenizer_hash
 
@@ -286,6 +313,16 @@ def cmd_bench(args: argparse.Namespace) -> None:
 
 
 def cmd_quantize(args: argparse.Namespace) -> None:
+    from .quant import LATENCY_WARNING, dry_run_report
+
+    if args.dry_run:
+        dry_run_report(
+            args.ckpt,
+            bits=args.bits,
+            group_size=args.group_size,
+            quantize_embedding=args.quantize_embedding,
+        )
+        return
     src_mb = Path(args.ckpt).stat().st_size / 1e6
     if args.method == "dynamic":
         from .export import quantize_int8
@@ -307,6 +344,7 @@ def cmd_quantize(args: argparse.Namespace) -> None:
     print(f"int{meta['bits']} weight-only, group={meta['group_size']}, ", end="")
     print(f"embedding={'quantized' if meta['quantize_embedding'] else 'fp32'}")
     print(f"{src_mb:.1f}MB -> {dst_mb:.1f}MB  ({src_mb / max(dst_mb, 1e-9):.2f}x smaller)  {out}")
+    print(LATENCY_WARNING)
     print("\nsize alone proves nothing — measure it:")
     print(f"  pico-lm bench --ckpt {out} --data data")
 
@@ -477,10 +515,18 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--data", default="data")
     tr.add_argument("--out", default="runs/small")
     tr.add_argument("--tokenizer", help="tokenizer to copy into the run dir")
-    tr.add_argument("--resume", action="store_true", help="continue from <out>/last.pt")
+    tr.add_argument(
+        "--resume",
+        action="store_true",
+        help="exact resume from <out>/last.pt (optimizer, step, scaler, RNG "
+        "restored; saved schedule reused, explicit flags win). Raise --max-steps "
+        "to continue. Legacy ckpts without RNG state warn.",
+    )
     tr.add_argument(
         "--init-from",
-        help="start with compatible weights but a fresh optimizer (supports context extension)",
+        help="warm-start, NOT exact resume: copy compatible weights, then a fresh "
+        "optimizer/schedule at step 0 (supports context extension via a larger "
+        "--seq-len / rope_theta)",
     )
     tr.add_argument("--teacher", help="checkpoint of a larger Pico-LM model to distill from")
     tr.add_argument("--compile", action=argparse.BooleanOptionalAction, default=None)
@@ -501,6 +547,13 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--eval-iters", type=int)
     tr.add_argument("--log-interval", type=int)
     tr.add_argument("--seed", type=int)
+    tr.add_argument(
+        "--fused",
+        default=None,
+        choices=("auto", "on", "off"),
+        help="AdamW fused kernels: auto (fused on CUDA, plain elsewhere), on, off. "
+        "auto/on fall back to unfused with a warning on torch builds without it.",
+    )
     tr.set_defaults(fn=cmd_train)
 
     def _gen_args(sp: argparse.ArgumentParser) -> None:
@@ -539,9 +592,16 @@ def build_parser() -> argparse.ArgumentParser:
     ft.add_argument("--sft-data", default="data_sft", help="dir holding sft_train/val.npz")
     ft.add_argument("--out", default="runs/sft")
     ft.add_argument(
-        "--init-from", help="pretrained checkpoint to start from (required unless --resume)"
+        "--init-from",
+        help="warm-start, NOT exact resume: pretrained checkpoint to start from "
+        "(required unless --resume); optimizer/schedule restart at step 0",
     )
-    ft.add_argument("--resume", action="store_true", help="continue an interrupted SFT run")
+    ft.add_argument(
+        "--resume",
+        action="store_true",
+        help="exact resume of an interrupted SFT run from <out>/last.pt "
+        "(optimizer, step, scaler, RNG restored)",
+    )
     ft.add_argument("--tokenizer")
     ft.add_argument(
         "--bench-jsonl",
@@ -563,13 +623,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ft.add_argument(
         "--replay-data",
-        help="pretraining data dir containing train.bin; mixes LM loss to reduce forgetting",
+        help="pretraining data dir containing train.bin; mixes replay_weight "
+        "(default 0.1) LM loss to reduce catastrophic forgetting. Strongly "
+        "recommended: SFT without replay is known to erase base LM ability.",
     )
     ft.add_argument(
         "--replay-weight",
         type=float,
         default=None,
         help="fraction of the SFT objective assigned to replay loss (default 0.1)",
+    )
+    ft.add_argument(
+        "--allow-no-replay",
+        action="store_true",
+        help="confirm SFT without --replay-data (SFT-only experiment); silences "
+        "the forgetting warning. Bench general probes before shipping.",
+    )
+    ft.add_argument(
+        "--fused",
+        default=None,
+        choices=("auto", "on", "off"),
+        help="AdamW fused kernels: auto (fused on CUDA, plain elsewhere), on, off.",
     )
     ft.add_argument("--batch-size", type=int)
     ft.add_argument("--grad-accum-steps", type=int)
@@ -598,6 +672,19 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--seed", type=int, default=0)
     b.add_argument("--no-speed", action="store_true")
     b.add_argument("--json", help="also write the full report here")
+    b.add_argument(
+        "--base-ckpt",
+        default=None,
+        help="baseline checkpoint for the ppl-regression guard: corpus ppl is "
+        "measured on both and a >20 pct degradation prints a WARNING",
+    )
+    b.add_argument(
+        "--baseline-ppl",
+        type=float,
+        default=None,
+        help="known baseline perplexity (alternative to --base-ckpt) "
+        "for the 20 pct regression guard",
+    )
     b.set_defaults(fn=cmd_bench)
 
     q = sub.add_parser("quantize", help="post-training quantization of a checkpoint")
@@ -620,7 +707,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--method",
         default="weight-only",
         choices=("weight-only", "dynamic"),
-        help="weight-only: any device, smaller on disk. dynamic: torch int8, CPU only",
+        help="weight-only: any device, smaller on disk but SLOWER decode (dequant "
+        "per matmul). dynamic: torch int8, CPU only, real speedup",
+    )
+    q.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="estimate quantized size and tok/s without writing a file; prints "
+        "the CPU-latency warning",
     )
     q.set_defaults(fn=cmd_quantize)
 

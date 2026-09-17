@@ -22,6 +22,7 @@ while producing unusable generations; selecting on loss ships that model.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import shutil
 import time
@@ -35,9 +36,28 @@ from .data import TokenDataset
 from .model import Transformer
 from .provenance import capture_rng, manifest, restore_rng
 from .tokenizer import PicoTokenizer
-from .train import autocast_ctx, cosine_lr, load_model, pick_device, pick_dtype
+from .train import (
+    autocast_ctx,
+    cosine_lr,
+    load_model,
+    pick_device,
+    pick_dtype,
+    resolve_fused,
+)
+
+logger = logging.getLogger(__name__)
 
 IGNORE_INDEX = -1
+
+#: Shown when SFT runs without pretraining replay. Pure SFT on a narrow
+#: instruction set causes catastrophic forgetting of the base LM.
+NO_REPLAY_WARNING = (
+    "WARNING: SFT without --replay-data (pure instruction loss) is known to "
+    "erase base LM ability (measured: corpus ppl 4.7 -> 903, cloze 98% -> 62%). "
+    "Pass --replay-data <pretrain-dir> (default --replay-weight 0.1) or "
+    "--allow-no-replay to confirm you accept the forgetting risk, and bench "
+    "general probes (not just your task) before shipping."
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -82,10 +102,14 @@ def encode_pair(rec: dict, tok: PicoTokenizer, max_len: int) -> tuple[list[int],
     if len(response_ids) >= max_len:
         response_ids = response_ids[: max_len - 1]
         response_ids[-1] = tok.eos_id
-    # left-truncate the prompt: the response and the generation cue must survive
+    # Middle-truncate the prompt: keep the header (chat template + BOS +
+    # instruction start) AND the tail (generation cue) — pure left-truncation
+    # silently discarded the instruction itself on long examples.
     budget = max_len - len(response_ids)
     if len(prompt_ids) > budget:
-        prompt_ids = prompt_ids[-budget:]
+        head = max(16, budget // 3)
+        tail = budget - head
+        prompt_ids = prompt_ids[:head] + prompt_ids[-tail:] if tail > 0 else prompt_ids[:budget]
     if not response_ids or budget <= 0:
         return None
     return prompt_ids + response_ids, len(prompt_ids)
@@ -211,7 +235,7 @@ def masked_val_loss(
     model: Transformer, ds: SFTDataset, cfg: SFTConfig, device: str, dtype: torch.dtype
 ) -> float:
     model.eval()
-    gen = torch.Generator().manual_seed(0)
+    gen = torch.Generator().manual_seed(cfg.seed)
     losses = []
     for _ in range(cfg.eval_iters):
         x, y = ds.get_batch(cfg.batch_size, device, generator=gen)
@@ -272,6 +296,7 @@ def finetune(
     tokenizer_path: str | None = None,
     bench_jsonl: str | Path | None = None,
     replay_data: str | Path | None = None,
+    confirm_no_replay: bool = False,
 ) -> dict:
     """Fine-tune a pretrained checkpoint on instruction pairs.
 
@@ -279,6 +304,12 @@ def finetune(
     the behavioural score; without it selection silently falls back to loss, and
     a warning says so — because selecting a fine-tune on loss alone is exactly
     how a 0.05-loss model that answers nothing correctly gets shipped.
+
+    ``replay_data`` (a pretraining data dir with ``train.bin``) mixes
+    ``cfg.replay_weight`` (default 0.1) ordinary LM loss into the objective to
+    reduce catastrophic forgetting. Running without it rewrites the LM toward
+    the narrow SFT distribution; pass ``confirm_no_replay=True``
+    (``--allow-no-replay`` on the CLI) only if you accept that risk.
     """
     cfg.validate()
     device = pick_device()
@@ -306,7 +337,8 @@ def finetune(
     step = 0
     best = {"loss": float("inf"), "score": -1.0}
     last_path = out_dir / "last.pt"
-    if resume and last_path.exists():
+    resumed = resume and last_path.exists()
+    if resumed:
         model, ckpt = load_model(last_path, device)
         optimizer = _make_optimizer(model, cfg, device)
         optimizer.load_state_dict(ckpt["optimizer"])
@@ -314,6 +346,12 @@ def finetune(
         best = {"loss": ckpt.get("best_val", float("inf")), "score": ckpt.get("best_score", -1.0)}
         init_from = ckpt.get("init_from", init_from)
         print(f"resumed SFT from step {step}")
+        if step >= cfg.max_steps:
+            raise SystemExit(
+                f"SFT already at step {step} >= max_steps {cfg.max_steps}; nothing to do. "
+                f"Raise --max-steps to continue (e.g. --resume --max-steps {step + 1}) "
+                "or start a new --out dir."
+            )
     elif init_from:
         model, base_ckpt = load_model(init_from, device)
         optimizer = _make_optimizer(model, cfg, device)
@@ -323,6 +361,14 @@ def finetune(
         )
     else:
         raise SystemExit("SFT needs pretrained weights: pass --init-from <checkpoint>")
+    if replay_ds is None and not resumed and not confirm_no_replay:
+        # Hard gate (não só aviso): SFT sem replay apaga o LM base.
+        # Quem quer o experimento SFT-only passa confirm_no_replay=True
+        # (--allow-no-replay no CLI).
+        raise SystemExit(
+            f"{NO_REPLAY_WARNING} Pass --replay-data <pretrain-dir> or "
+            "--allow-no-replay to proceed."
+        )
     model_cfg = model.cfg
     if tok.vocab_size != model_cfg.vocab_size:
         raise ValueError(
@@ -492,17 +538,35 @@ def finetune(
     return best
 
 
-def _make_optimizer(model: Transformer, cfg: SFTConfig, device: str) -> torch.optim.AdamW:
+def _make_optimizer(
+    model: Transformer,
+    cfg: SFTConfig,
+    device: str,
+    fused: str | bool | None = None,
+) -> torch.optim.AdamW:
+    if fused is None:
+        fused = getattr(cfg, "fused", "auto")
+    want_fused = resolve_fused(device, fused)
     decay, no_decay = [], []
     for p in model.parameters():
         if p.requires_grad:
             (decay if p.dim() >= 2 else no_decay).append(p)
-    return torch.optim.AdamW(
-        [
-            {"params": decay, "weight_decay": cfg.weight_decay},
-            {"params": no_decay, "weight_decay": 0.0},
-        ],
-        lr=cfg.lr,
-        betas=(cfg.beta1, cfg.beta2),
-        fused=(device == "cuda"),
-    )
+    groups = [
+        {"params": decay, "weight_decay": cfg.weight_decay},
+        {"params": no_decay, "weight_decay": 0.0},
+    ]
+    try:
+        return torch.optim.AdamW(
+            groups,
+            lr=cfg.lr,
+            betas=(cfg.beta1, cfg.beta2),
+            fused=want_fused,
+        )
+    except TypeError as exc:
+        logger.warning("AdamW fused kwarg unsupported (%s); using unfused AdamW", exc)
+        return torch.optim.AdamW(groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2))
+    except ValueError as exc:
+        if want_fused:
+            logger.warning("AdamW fused kernel unavailable (%s); using fused=False", exc)
+            return torch.optim.AdamW(groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2))
+        raise

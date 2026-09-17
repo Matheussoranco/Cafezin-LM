@@ -85,18 +85,18 @@ PRONOUN_CASE = {
 ARTICLES = {"a": "an", "an": "a"}
 
 
-def _sub_word(words: list[str], table: dict[str, str]) -> list[str] | None:
+def _sub_word(words: list[str], table: dict[str, str], rng: random.Random) -> list[str] | None:
     """Replace one randomly chosen word that has an entry in ``table``."""
     hits = [i for i, w in enumerate(words) if w.lower() in table and i > 0]
     if not hits:
         return None
-    i = random.choice(hits)
+    i = rng.choice(hits)
     out = list(words)
     out[i] = table[words[i].lower()]
     return out
 
 
-def _swap_adjacent(words: list[str]) -> list[str] | None:
+def _swap_adjacent(words: list[str], rng: random.Random) -> list[str] | None:
     """Swap two adjacent lowercase words (skipping the first, to keep casing)."""
     hits = [
         i
@@ -105,33 +105,49 @@ def _swap_adjacent(words: list[str]) -> list[str] | None:
     ]
     if not hits:
         return None
-    i = random.choice(hits)
+    i = rng.choice(hits)
     out = list(words)
     out[i], out[i + 1] = out[i + 1], out[i]
     return out
 
 
+def _corrupt(kind: str, words: list[str], rng: random.Random) -> list[str] | None:
+    if kind == "swap":
+        return _swap_adjacent(words, rng)
+    if kind == "agreement":
+        return _sub_word(words, AGREEMENT, rng)
+    if kind == "pronoun":
+        return _sub_word(words, PRONOUN_CASE, rng)
+    if kind == "article":
+        return _sub_word(words, ARTICLES, rng)
+    raise KeyError(kind)
+
+
 CORRUPTIONS = {
     "swap": _swap_adjacent,
-    "agreement": lambda w: _sub_word(w, AGREEMENT),
-    "pronoun": lambda w: _sub_word(w, PRONOUN_CASE),
-    "article": lambda w: _sub_word(w, ARTICLES),
+    "agreement": lambda w, _rng=None: _sub_word(w, AGREEMENT, _rng or random),
+    "pronoun": lambda w, _rng=None: _sub_word(w, PRONOUN_CASE, _rng or random),
+    "article": lambda w, _rng=None: _sub_word(w, ARTICLES, _rng or random),
 }
 
 
 def build_minimal_pairs(docs: list[str], n_items: int, seed: int = 0) -> list[dict]:
     """Real sentence vs. minimally corrupted copy. Word count is preserved, so
-    mean-per-token normalization is not fighting a length confound."""
-    random.seed(seed)
+    mean-per-token normalization is not fighting a length confound.
+
+    Uses a local ``random.Random(seed)`` — the global RNG is never seeded here
+    so calling bench does not perturb training randomness elsewhere.
+    """
+    rng = random.Random(seed)
     sentences = [s for d in docs for s in split_sentences(d) if 6 <= len(s.split()) <= 30]
-    random.shuffle(sentences)
+    rng.shuffle(sentences)
     items, kinds = [], list(CORRUPTIONS)
     for idx, sent in enumerate(sentences):
         if len(items) >= n_items:
             break
         kind = kinds[idx % len(kinds)]
         words = sent.split()
-        bad_words = CORRUPTIONS[kind](words)
+        bad_words = _corrupt(kind, words, rng)
         if bad_words is None:
             continue
         bad = " ".join(bad_words)
@@ -296,33 +312,39 @@ def generation_health(
     temperature: float = 0.8,
     seed: int = 0,
 ) -> dict:
+    # Local determinism without seeding the global RNG: snapshot torch state,
+    # seed for this probe, restore afterwards.
+    _torch_state = torch.get_rng_state()
     torch.manual_seed(seed)
-    model.eval()
-    distinct2, unique4, lengths, finished, samples = [], [], [], 0, []
-    for p in prompts:
-        ids = tok.encode(p, bos=True)
-        x = torch.tensor([ids], dtype=torch.long, device=device)
-        y = model.generate(
-            x,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_k=50,
-            top_p=0.95,
-            eos_id=tok.eos_id,
-            repetition_penalty=1.0,  # no penalty: we are *measuring* repetition
-        )
-        gen = y[0, len(ids) :].tolist()
-        if tok.eos_id in gen:
-            finished += 1
-            gen = gen[: gen.index(tok.eos_id)]
-        if not gen:
-            continue
-        distinct2.append(_ngram_stats(gen, 2))
-        if len(gen) >= 4:
-            unique4.append(_ngram_stats(gen, 4))
-        lengths.append(len(gen))
-        if len(samples) < 4:
-            samples.append({"prompt": p, "completion": tok.decode(gen)})
+    try:
+        model.eval()
+        distinct2, unique4, lengths, finished, samples = [], [], [], 0, []
+        for p in prompts:
+            ids = tok.encode(p, bos=True)
+            x = torch.tensor([ids], dtype=torch.long, device=device)
+            y = model.generate(
+                x,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=50,
+                top_p=0.95,
+                eos_id=tok.eos_id,
+                repetition_penalty=1.0,  # no penalty: we are *measuring* repetition
+            )
+            gen = y[0, len(ids) :].tolist()
+            if tok.eos_id in gen:
+                finished += 1
+                gen = gen[: gen.index(tok.eos_id)]
+            if not gen:
+                continue
+            distinct2.append(_ngram_stats(gen, 2))
+            if len(gen) >= 4:
+                unique4.append(_ngram_stats(gen, 4))
+            lengths.append(len(gen))
+            if len(samples) < 4:
+                samples.append({"prompt": p, "completion": tok.decode(gen)})
+    finally:
+        torch.set_rng_state(_torch_state)
     return {
         "distinct_2": float(np.mean(distinct2)) if distinct2 else 0.0,
         "unique_4gram": float(np.mean(unique4)) if unique4 else 0.0,
@@ -468,15 +490,59 @@ def val_loss(model: Transformer, bin_path: str | Path, device: str, iters: int =
 
     ds = TokenDataset(bin_path)
     seq = min(256, model.cfg.max_seq_len)
+    _st = torch.get_rng_state()
     torch.manual_seed(1234)
-    losses = []
-    model.eval()
-    for _ in range(iters):
-        x, y = ds.get_batch(8, seq, device)
-        _, loss = model(x, y)
-        losses.append(loss.item())
+    try:
+        losses = []
+        model.eval()
+        for _ in range(iters):
+            x, y = ds.get_batch(8, seq, device)
+            _, loss = model(x, y)
+            losses.append(loss.item())
+    finally:
+        torch.set_rng_state(_st)
     mean = float(np.mean(losses))
     return {"loss": mean, "perplexity": math.exp(min(mean, 20))}
+
+
+# --------------------------------------------------------------------------- #
+# perplexity-regression guard (SFT footgun detector)
+# --------------------------------------------------------------------------- #
+#: Relative perplexity increase that counts as a regression. SFT without
+#: replay measured ~190x here, so 20% is a deliberately sensitive tripwire.
+PPL_REGRESSION_THRESHOLD = 0.20
+
+
+def check_ppl_regression(
+    baseline_ppl: float, current_ppl: float, threshold: float = PPL_REGRESSION_THRESHOLD
+) -> dict:
+    """Compare corpus perplexity before/after a post-training step.
+
+    Returns ``{"degraded": bool, "ratio": float, "message": str}``. ``ratio``
+    is ``(current - baseline) / baseline``. A ``ValueError`` is raised for
+    non-finite or non-positive inputs so a broken eval cannot silently pass.
+    """
+    for name, value in (("baseline_ppl", baseline_ppl), ("current_ppl", current_ppl)):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be a finite positive perplexity, got {value!r}")
+    if not math.isfinite(threshold) or threshold < 0:
+        raise ValueError(f"threshold must be a finite non-negative ratio, got {threshold!r}")
+    ratio = (current_ppl - baseline_ppl) / baseline_ppl
+    degraded = ratio > threshold
+    if degraded:
+        message = (
+            f"WARNING: corpus perplexity regressed {ratio:.0%} "
+            f"({baseline_ppl:.2f} -> {current_ppl:.2f}, threshold {threshold:.0%}). "
+            "The post-training step likely damaged the base LM "
+            "(classic SFT-without-replay forgetting) — do not ship on task "
+            "score alone."
+        )
+    else:
+        message = (
+            f"perplexity change {ratio:+.1%} ({baseline_ppl:.2f} -> {current_ppl:.2f}) "
+            f"within the {threshold:.0%} regression budget"
+        )
+    return {"degraded": degraded, "ratio": ratio, "message": message}
 
 
 # --------------------------------------------------------------------------- #
@@ -551,4 +617,11 @@ def format_report(report: dict, title: str = "") -> str:
     if "speed" in report:
         s = report["speed"]
         lines.append(f"decode speed       {s['decode_tok_per_s']:.1f} tok/s on {s['device']}")
+    if "ppl_regression" in report:
+        r = report["ppl_regression"]
+        status = "REGRESSED" if r["degraded"] else "ok"
+        lines.append(
+            f"ppl regression     {status}: {r['baseline_ppl']:.2f} -> {r['current_ppl']:.2f} "
+            f"({r['ratio']:+.1%}, budget {r['threshold']:.0%})"
+        )
     return "\n".join(lines)

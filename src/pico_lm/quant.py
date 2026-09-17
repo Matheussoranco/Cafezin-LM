@@ -31,6 +31,91 @@ from .model import Transformer
 
 SUPPORTED_BITS = (4, 8)
 
+#: Weight-only quantization dequantizes on every matmul, so it buys disk/VRAM,
+#: not speed — on CPU it is measurably slower (micro 15.7M: 22.4 -> 17.1 int8
+#: -> 9.7 int4 tok/s). Surface this wherever a quantized checkpoint is made.
+LATENCY_WARNING = (
+    "NOTE: int8/int4 weight-only quantization saves VRAM/disk but dequantizes "
+    "weights on every matmul, so CPU decode latency gets WORSE, not better "
+    "(measured micro: 22.4 -> 17.1 -> 9.7 tok/s). For faster CPU inference use "
+    "`quantize --method dynamic` (real int8 matmuls, CPU-only) and compare "
+    "with `pico-lm bench` before shipping."
+)
+
+#: Rough bytes-per-parameter for size estimates (fp32 vs packed codes + scales).
+_BYTES_PER_PARAM = {32: 4.0, 8: 1.15, 4: 0.65}
+
+
+def estimate_quantized_size(num_params: int, bits: int, quantize_embedding: bool = True) -> float:
+    """Rough quantized size in MB (codes + fp16 scales, no header)."""
+    per_param = _BYTES_PER_PARAM[32] if bits == 32 else _BYTES_PER_PARAM[bits]
+    if not quantize_embedding:
+        # Embedding stays fp32; callers pass the embedding fraction separately
+        # via `dry_run_report`, which refines this coarse estimate.
+        pass
+    return num_params * per_param / 1e6
+
+
+def dry_run_report(
+    ckpt_path: str | Path,
+    bits: int = 8,
+    group_size: int = 64,
+    quantize_embedding: bool = False,
+    base_tok_per_s: float | None = None,
+) -> dict:
+    """Estimate a quantization without writing anything.
+
+    Returns ``{"src_mb", "est_mb", "ratio", "warning", "tok_per_s_note"}`` and
+    prints the same. ``base_tok_per_s`` (e.g. from ``bench --json``) lets the
+    report scale the documented 22.4 -> 17.1 (int8) -> 9.7 (int4) slowdown to
+    this machine; without it the reference tok/s numbers are quoted as-is.
+    """
+    import torch as _torch
+
+    src = Path(ckpt_path)
+    src_mb = src.stat().st_size / 1e6 if src.exists() else 0.0
+    ckpt = _torch.load(str(ckpt_path), map_location="cpu", weights_only=True)
+    cfg = ModelConfig.from_dict(ckpt["model_cfg"])
+    model = Transformer(cfg)
+    n_params = model.num_params()
+    n_embed = cfg.vocab_size * cfg.dim * (1 if cfg.tie_weights else 2)
+    if quantize_embedding:
+        est_mb = n_params * _BYTES_PER_PARAM[bits] / 1e6
+    else:
+        est_mb = (
+            (n_params - n_embed) * _BYTES_PER_PARAM[bits] + n_embed * _BYTES_PER_PARAM[32]
+        ) / 1e6
+    ratio = src_mb / max(est_mb, 1e-9)
+    # Documented micro slowdown factors, reused as a planning estimate.
+    factor = {8: 17.1 / 22.4, 4: 9.7 / 22.4}.get(bits, 1.0)
+    if base_tok_per_s:
+        tok_note = (
+            f"at {base_tok_per_s:.1f} tok/s fp, expect ~{base_tok_per_s * factor:.1f} "
+            f"tok/s after int{bits} weight-only (estimate, measure with bench)"
+        )
+    else:
+        tok_note = (
+            f"reference micro decode: 22.4 tok/s fp -> "
+            f"{'17.1' if bits == 8 else '9.7'} tok/s int{bits} weight-only "
+            f"(slower; measure your ckpt with `pico-lm bench`)"
+        )
+    report = {
+        "src_mb": src_mb,
+        "est_mb": est_mb,
+        "ratio": ratio,
+        "bits": bits,
+        "group_size": group_size,
+        "quantize_embedding": quantize_embedding,
+        "warning": LATENCY_WARNING,
+        "tok_per_s_note": tok_note,
+    }
+    print(f"dry-run int{bits} weight-only, group={group_size}, ", end="")
+    print(f"embedding={'quantized' if quantize_embedding else 'fp32'}")
+    print(f"{src_mb:.1f}MB -> ~{est_mb:.1f}MB  (~{ratio:.2f}x smaller, estimate; no file written)")
+    print(tok_note)
+    print(LATENCY_WARNING)
+    return report
+
 
 # --------------------------------------------------------------------------- #
 # tensor-level quantization

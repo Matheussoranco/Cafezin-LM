@@ -80,6 +80,9 @@ class TrainConfig:
     seed: int = 1337
     compile: bool = False  # torch.compile (Triton is unavailable on Windows CUDA)
     gradient_checkpointing: bool = False  # recompute blocks to make long contexts fit
+    # AdamW fused kernels: "auto" (fused on CUDA, plain elsewhere), "on", or "off".
+    # "auto"/"on" fall back to unfused with a warning on torch builds without it.
+    fused: str = "auto"
     # knowledge distillation (teacher must share the tokenizer/vocab)
     kd_alpha: float = 0.5  # weight of KD loss vs cross-entropy when a teacher is set
     kd_temperature: float = 2.0
@@ -99,6 +102,8 @@ class TrainConfig:
             raise ValueError("kd_alpha must be in [0, 1]")
         if self.kd_temperature <= 0:
             raise ValueError("kd_temperature must be positive")
+        if str(self.fused).lower() not in {"auto", "on", "off"}:
+            raise ValueError("fused must be one of 'auto', 'on', 'off'")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -141,6 +146,8 @@ class SFTConfig:
     # behavioural evaluation during training (see pico_lm.bench)
     bench_examples: int = 120  # held-out prompts scored by exact match at each eval
     select_by: str = "score"  # "score" (behavioural) or "loss" — see finetune()
+    # AdamW fused kernels: "auto" (fused on CUDA, plain elsewhere), "on", or "off".
+    fused: str = "auto"
 
     def validate(self) -> None:
         _finite_config(self)
@@ -159,6 +166,8 @@ class SFTConfig:
             raise ValueError("replay_weight must be in [0, 1)")
         if self.select_by not in {"score", "loss"}:
             raise ValueError("select_by must be 'score' or 'loss'")
+        if str(self.fused).lower() not in {"auto", "on", "off"}:
+            raise ValueError("fused must be one of 'auto', 'on', 'off'")
 
     def to_dict(self) -> dict:
         return asdict(self)

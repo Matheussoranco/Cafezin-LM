@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import math
 import shutil
 import time
@@ -16,6 +17,8 @@ from .config import ModelConfig, TrainConfig
 from .data import TokenDataset
 from .model import Transformer
 from .provenance import capture_rng, manifest, restore_rng
+
+logger = logging.getLogger(__name__)
 
 
 def pick_device() -> str:
@@ -46,7 +49,51 @@ def cosine_lr(step: int, cfg: TrainConfig) -> float:
     return cfg.min_lr + 0.5 * (cfg.lr - cfg.min_lr) * (1 + math.cos(math.pi * progress))
 
 
-def make_optimizer(model: Transformer, cfg: TrainConfig, device: str) -> torch.optim.AdamW:
+def resolve_fused(device: str, option: str | bool | None) -> bool:
+    """Map a ``--fused auto/on/off`` option to an AdamW ``fused`` flag.
+
+    ``auto`` means fused on CUDA, plain elsewhere. Booleans are accepted for
+    backward compatibility (True -> "on", False -> "off").
+    """
+    if option is None:
+        option = "auto"
+    if isinstance(option, bool):
+        return option
+    opt = str(option).lower()
+    if opt in {"off", "false", "0", "no"}:
+        return False
+    if opt in {"on", "true", "1", "yes"}:
+        return True
+    if opt == "auto":
+        return device.split(":")[0] == "cuda"
+    raise ValueError(f"fused must be one of 'auto', 'on', 'off', got {option!r}")
+
+
+def _build_adamw(groups, cfg: TrainConfig, want_fused: bool) -> torch.optim.AdamW:
+    try:
+        return torch.optim.AdamW(groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2), fused=want_fused)
+    except TypeError as exc:
+        # Old torch builds have no `fused` kwarg at all — retry plain, even
+        # when want_fused is False, since the kwarg itself is unknown.
+        logger.warning("AdamW fused kwarg unsupported (%s); using unfused AdamW", exc)
+        return torch.optim.AdamW(groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2))
+    except ValueError as exc:
+        # Torch knows `fused` but rejects the value for this device/dtype.
+        if want_fused:
+            logger.warning("AdamW fused kernel unavailable (%s); using fused=False", exc)
+            return torch.optim.AdamW(groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2))
+        raise
+
+
+def make_optimizer(
+    model: Transformer,
+    cfg: TrainConfig,
+    device: str,
+    fused: str | bool | None = None,
+) -> torch.optim.AdamW:
+    if fused is None:
+        fused = getattr(cfg, "fused", "auto")
+    want_fused = resolve_fused(device, fused)
     decay, no_decay = [], []
     for p in model.parameters():
         if not p.requires_grad:
@@ -56,9 +103,7 @@ def make_optimizer(model: Transformer, cfg: TrainConfig, device: str) -> torch.o
         {"params": decay, "weight_decay": cfg.weight_decay},
         {"params": no_decay, "weight_decay": 0.0},
     ]
-    return torch.optim.AdamW(
-        groups, lr=cfg.lr, betas=(cfg.beta1, cfg.beta2), fused=(device == "cuda")
-    )
+    return _build_adamw(groups, cfg, want_fused)
 
 
 @torch.no_grad()
@@ -189,6 +234,15 @@ def train(
     teacher_ckpt: str | None = None,
     tokenizer_path: str | None = None,
 ) -> float:
+    """Run the pretraining loop.
+
+    ``resume=True`` is an *exact* resume from ``<out>/last.pt``: model,
+    optimizer state, step counter, best-val, AMP scaler and RNG states are all
+    restored (checkpoints already save them; ``--help`` says so). ``init_from``
+    is a *warm-start, not an exact resume*: compatible weights are copied into
+    a fresh model/schedule at step 0 with a fresh optimizer — intended for
+    context extension (larger ``max_seq_len`` / ``rope_theta``).
+    """
     if resume and init_from:
         raise ValueError("--resume and --init-from are mutually exclusive")
     device = pick_device()
@@ -206,6 +260,16 @@ def train(
         raise ValueError(
             f"data vocab {meta['vocab_size']} exceeds model vocab {model_cfg.vocab_size}"
         )
+    if train_cfg.seq_len > model_cfg.max_seq_len:
+        import warnings as _warnings
+
+        _msg = (
+            f"train seq_len {train_cfg.seq_len} exceeds model max_seq_len "
+            f"{model_cfg.max_seq_len}; clamping to {model_cfg.max_seq_len}"
+        )
+        _warnings.warn(_msg, UserWarning, stacklevel=2)
+        logger.warning(_msg)
+        print(f"warning: {_msg}")
     train_cfg.seq_len = min(train_cfg.seq_len, model_cfg.max_seq_len)
     train_cfg.validate()
     datasets = {
@@ -229,11 +293,11 @@ def train(
         model_cfg = model.cfg
         print(f"resumed from step {step} (best val {best_val:.4f})")
         if step >= train_cfg.max_steps:
-            print(
-                f"already at step {step} >= max_steps {train_cfg.max_steps}; "
-                "nothing to do (raise --max-steps to continue)"
+            raise SystemExit(
+                f"already at step {step} >= max_steps {train_cfg.max_steps}; nothing to do. "
+                f"Raise --max-steps to continue (e.g. --resume --max-steps {step + 1}) "
+                "or start a new --out dir."
             )
-            return best_val
     elif init_from:
         source, source_ckpt = load_model(init_from, device)
         source_cfg = source.cfg
@@ -265,6 +329,16 @@ def train(
             print(f"--resume requested but {ckpt_path} does not exist; starting from scratch")
         model = Transformer(model_cfg).to(device)
         optimizer = make_optimizer(model, train_cfg, device)
+    if train_cfg.seq_len > model.cfg.max_seq_len:
+        import warnings as _warnings2
+
+        _msg2 = (
+            f"train seq_len {train_cfg.seq_len} exceeds model max_seq_len "
+            f"{model.cfg.max_seq_len}; clamping to {model.cfg.max_seq_len}"
+        )
+        _warnings2.warn(_msg2, UserWarning, stacklevel=2)
+        logger.warning(_msg2)
+        print(f"warning: {_msg2}")
     train_cfg.seq_len = min(train_cfg.seq_len, model.cfg.max_seq_len)
     model.set_gradient_checkpointing(train_cfg.gradient_checkpointing)
     model.train()

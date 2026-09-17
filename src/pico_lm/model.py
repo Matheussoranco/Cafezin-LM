@@ -48,7 +48,16 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
 
 
 class KVCache:
-    """Preallocated per-layer key/value cache for incremental decoding."""
+    """Preallocated per-layer key/value cache for incremental decoding.
+
+    Dense and simple by design: one ``(n_layers, batch, n_kv_heads,
+    max_seq_len, head_dim)`` tensor per K/V, i.e. ``2 × layers × batch ×
+    seq × kv_heads × head_dim`` elements resident even when the prompt is
+    short.  At ``micro-long`` (4096 ctx) that is the dominant decode-time
+    allocation — long-context batch serving wants paged/blocked attention
+    instead.  Documented limit, not a bug for single-GPU interactive use:
+    keep ``batch × max_seq_len`` modest or shrink ``max_seq_len``.
+    """
 
     def __init__(
         self,

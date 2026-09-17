@@ -12,14 +12,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "torch>=2.2",
-    "numpy>=1.24",
-    "tokenizers>=0.15",
+    "torch>=2.2,<3.0",
+    "numpy>=1.24,<2.0",
+    "tokenizers>=0.15,<1.0",
 ]
 
 [project.optional-dependencies]
-data = ["datasets>=2.18"]
-dev = ["pytest>=7.0", "ruff==0.15.2"]  # ruff pinned: see .github/workflows/ci.yml
+data = ["datasets>=2.18,<3.0"]
+dev = ["pytest>=7.0,<9.0", "ruff==0.15.2"]  # ruff pinned: see .github/workflows/ci.yml
 
 [project.scripts]
 pico-lm = "pico_lm.cli:main"

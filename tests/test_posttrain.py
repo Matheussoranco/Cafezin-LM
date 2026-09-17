@@ -262,6 +262,7 @@ def test_finetune_end_to_end_improves_the_target_behaviour(tmp_path, tok):
         init_from=str(base_ckpt),
         tokenizer_path=str(tmp_path / "tokenizer.json"),
         bench_jsonl=jl,
+        confirm_no_replay=True,  # SFT-only experiment: forgetting risk accepted here
     )
     assert (tmp_path / "out" / "best.pt").exists()
     assert (tmp_path / "out" / "sft_history.json").exists()
