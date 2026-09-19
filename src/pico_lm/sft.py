@@ -207,6 +207,9 @@ class SFTDataset:
         return self.collate(idx, device)
 
     def collate(self, idx: list[int], device: str | torch.device = "cpu"):
+        # Pinned collate: fixed pad/ignore-index, right-padding, prompt-masked
+        # targets. Deterministic given idx (no RNG inside); callers pass an
+        # explicitly seeded generator to get_batch for eval reproducibility.
         items = [self.example(i) for i in idx]
         width = max(len(ids) for ids, _ in items)
         x = torch.full((len(items), width - 1), self.pad_id, dtype=torch.long)

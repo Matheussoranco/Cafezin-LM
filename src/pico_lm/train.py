@@ -244,7 +244,14 @@ def train(
     context extension (larger ``max_seq_len`` / ``rope_theta``).
     """
     if resume and init_from:
-        raise ValueError("--resume and --init-from are mutually exclusive")
+        # Resume overrides init_from: an exact resume already carries its own
+        # weights/optimizer/schedule, so a warm-start source is meaningless.
+        # Warn (don't crash) and ignore init_from.
+        import warnings as _w
+
+        _w.warn("--resume overrides --init-from (ignoring init-from)", UserWarning, stacklevel=2)
+        logger.warning("--resume overrides --init-from (ignoring init-from)")
+        init_from = None
     device = pick_device()
     dtype = pick_dtype(device)
     torch.manual_seed(train_cfg.seed)
