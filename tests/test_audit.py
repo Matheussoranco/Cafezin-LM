@@ -167,9 +167,6 @@ def test_interrupted_sft_matches_uninterrupted(tmp_path):
             raise InterruptedError
 
     with patch.object(sft, "pick_device", return_value="cpu"):
-<<<<<<< HEAD
-        sft.finetune(tmp_path / "data", tmp_path / "full", cfg, init_from=str(source), confirm_no_replay=True)
-=======
         sft.finetune(
             tmp_path / "data",
             tmp_path / "full",
@@ -177,14 +174,10 @@ def test_interrupted_sft_matches_uninterrupted(tmp_path):
             init_from=str(source),
             confirm_no_replay=True,
         )
->>>>>>> da19e3ab768f8ca26c4a5e6721bfdda9d96c9487
         with (
             patch.object(sft, "save_sft_checkpoint", side_effect=interrupt),
             pytest.raises(InterruptedError),
         ):
-<<<<<<< HEAD
-            sft.finetune(tmp_path / "data", tmp_path / "resumed", cfg, init_from=str(source), confirm_no_replay=True)
-=======
             sft.finetune(
                 tmp_path / "data",
                 tmp_path / "resumed",
@@ -192,7 +185,6 @@ def test_interrupted_sft_matches_uninterrupted(tmp_path):
                 init_from=str(source),
                 confirm_no_replay=True,
             )
->>>>>>> da19e3ab768f8ca26c4a5e6721bfdda9d96c9487
         sft.finetune(tmp_path / "data", tmp_path / "resumed", cfg, resume=True)
     full = torch.load(tmp_path / "full" / "last.pt", weights_only=True)
     resumed = torch.load(tmp_path / "resumed" / "last.pt", weights_only=True)
