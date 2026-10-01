@@ -364,7 +364,7 @@ def finetune(
         )
     else:
         raise SystemExit("SFT needs pretrained weights: pass --init-from <checkpoint>")
-    
+
     if replay_ds is None and not resumed and not confirm_no_replay:
         # Hard gate (não só aviso): SFT sem replay apaga o LM base.
         # Quem quer o experimento SFT-only passa confirm_no_replay=True
