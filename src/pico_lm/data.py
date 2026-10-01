@@ -121,8 +121,11 @@ def prepare(
     buffers: dict[str, list[int]] = {"train": [], "val": []}
     files = {
         "train": (out / "train.bin").open("wb"),
-        "val": (out / "val.bin").open("wb"),
     }
+    val_file = None
+    if stride:
+        val_file = (out / "val.bin").open("wb")
+        files["val"] = val_file
     counts = {"train": 0, "val": 0}
     n_docs = 0
     try:
@@ -140,11 +143,16 @@ def prepare(
             if n_docs % 20000 == 0:
                 print(f"  {n_docs} docs, {counts['train'] + counts['val']:,} tokens")
         for split in ("train", "val"):
-            if buffers[split]:
+            if split in files and buffers[split]:
                 files[split].write(np.asarray(buffers[split], dtype=np.uint16).tobytes())
     finally:
         for f in files.values():
             f.close()
+        # If val was empty, remove the file
+        if not stride:
+            val_path = out / "val.bin"
+            if val_path.exists():
+                val_path.unlink()
 
     if n_docs == 0:
         raise ValueError("the corpus produced no documents; check --input / --hf / --chat-jsonl")

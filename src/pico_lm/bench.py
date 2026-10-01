@@ -315,7 +315,12 @@ def generation_health(
     # Local determinism without seeding the global RNG: snapshot torch state,
     # seed for this probe, restore afterwards.
     _torch_state = torch.get_rng_state()
+    _cuda_state = None
+    if device.startswith("cuda"):
+        _cuda_state = torch.cuda.get_rng_state()
     torch.manual_seed(seed)
+    if device.startswith("cuda"):
+        torch.cuda.manual_seed_all(seed)
     try:
         model.eval()
         distinct2, unique4, lengths, finished, samples = [], [], [], 0, []
@@ -345,6 +350,8 @@ def generation_health(
                 samples.append({"prompt": p, "completion": tok.decode(gen)})
     finally:
         torch.set_rng_state(_torch_state)
+        if _cuda_state is not None and device.startswith("cuda"):
+            torch.cuda.set_rng_state(_cuda_state)
     return {
         "distinct_2": float(np.mean(distinct2)) if distinct2 else 0.0,
         "unique_4gram": float(np.mean(unique4)) if unique4 else 0.0,

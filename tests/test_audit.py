@@ -167,12 +167,12 @@ def test_interrupted_sft_matches_uninterrupted(tmp_path):
             raise InterruptedError
 
     with patch.object(sft, "pick_device", return_value="cpu"):
-        sft.finetune(tmp_path / "data", tmp_path / "full", cfg, init_from=str(source))
+        sft.finetune(tmp_path / "data", tmp_path / "full", cfg, init_from=str(source), confirm_no_replay=True)
         with (
             patch.object(sft, "save_sft_checkpoint", side_effect=interrupt),
             pytest.raises(InterruptedError),
         ):
-            sft.finetune(tmp_path / "data", tmp_path / "resumed", cfg, init_from=str(source))
+            sft.finetune(tmp_path / "data", tmp_path / "resumed", cfg, init_from=str(source), confirm_no_replay=True)
         sft.finetune(tmp_path / "data", tmp_path / "resumed", cfg, resume=True)
     full = torch.load(tmp_path / "full" / "last.pt", weights_only=True)
     resumed = torch.load(tmp_path / "resumed" / "last.pt", weights_only=True)

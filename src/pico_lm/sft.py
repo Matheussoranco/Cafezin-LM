@@ -364,6 +364,7 @@ def finetune(
         )
     else:
         raise SystemExit("SFT needs pretrained weights: pass --init-from <checkpoint>")
+    
     if replay_ds is None and not resumed and not confirm_no_replay:
         # Hard gate (não só aviso): SFT sem replay apaga o LM base.
         # Quem quer o experimento SFT-only passa confirm_no_replay=True
@@ -387,9 +388,11 @@ def finetune(
                     "replay data and checkpoint must use the same tokenizer vocabulary"
                 )
     longest_example = int(np.diff(train_ds.offsets).max())
-    if longest_example - 1 > model_cfg.max_seq_len:
+    val_longest = int(np.diff(val_ds.offsets).max())
+    max_example = max(longest_example, val_longest)
+    if max_example - 1 > model_cfg.max_seq_len:
         raise ValueError(
-            f"SFT example length {longest_example} exceeds checkpoint context "
+            f"SFT example length {max_example} exceeds checkpoint context "
             f"{model_cfg.max_seq_len}; re-run prepare-sft with a smaller --max-len"
         )
     model.set_gradient_checkpointing(cfg.gradient_checkpointing)
