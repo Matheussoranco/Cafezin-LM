@@ -1,7 +1,9 @@
 .venv/
 __pycache__/
+*.py[cod]
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
 .claude/worktrees/
 data/
@@ -11,3 +13,9 @@ runs/
 *.pt
 *.npz
 tokenizer.json
+
+# Temporary files and generated analysis reports
+.__tmp_*
+*.tmp
+*.temp
+/radon.txt
