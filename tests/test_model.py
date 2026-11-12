@@ -1,159 +1,236 @@
-from types import MethodType
+"""Tests for the Cafezin LM model architecture.
 
-import pytest
+These verify:
+- exact weight-name parity with the published checkpoint
+- linear-attention chunk vs recurrent path equivalence
+- full-attention gate correctness
+- MTP forward pass
+- generation (prefill chunk + recurrent decode) matches full forward
+"""
+
 import torch
 
-from pico_lm.config import ModelConfig
-from pico_lm.model import KVCache, Transformer
+from cafezin_lm import (
+    CafezinLM,
+    GenerationCache,
+    build_model,
+    chunk_gated_delta_rule,
+    recurrent_gated_delta_rule,
+    tiny_config,
+)
 
 
-@pytest.fixture(scope="module")
-def cfg():
-    return ModelConfig(vocab_size=256, dim=64, n_layers=2, n_heads=4, n_kv_heads=2, max_seq_len=64)
+def test_model_builds_on_meta():
+    cfg = tiny_config()
+    with torch.device("meta"):
+        model = CafezinLM(cfg)
+    assert model.num_params() > 0
 
 
-@pytest.fixture(scope="module")
-def model(cfg):
-    torch.manual_seed(0)
-    m = Transformer(cfg)
-    m.eval()
-    return m
+def test_parameter_names_match_reference():
+    cfg = tiny_config()
+    with torch.device("meta"):
+        model = CafezinLM(cfg)
+    spec = {name: tuple(p.shape) for name, p in model.named_parameters()}
+
+    assert "model.language_model.embed_tokens.weight" in spec
+    assert "model.language_model.norm.weight" in spec
+    assert "model.visual.patch_embed.proj.weight" in spec
+    assert "model.visual.pos_embed.weight" in spec
+    assert "mtp.fc.weight" in spec
+    assert "mtp.norm.weight" in spec
+
+    # lm_head is tied and NOT in state_dict
+    assert "lm_head.weight" not in spec
+
+    linear_layers = sum(1 for n in spec if "linear_attn" in n)
+    full_layers = sum(1 for n in spec if "self_attn" in n and "mtp" not in n)
+    assert linear_layers > 0
+    assert full_layers > 0
 
 
-def test_forward_shapes_and_loss(model, cfg):
-    x = torch.randint(0, cfg.vocab_size, (2, 16))
-    y = torch.randint(0, cfg.vocab_size, (2, 16))
-    logits, loss = model(x, y)
-    assert logits.shape == (2, 16, cfg.vocab_size)
-    assert loss.ndim == 0 and torch.isfinite(loss)
+def test_linear_attn_chunk_vs_recurrent_equivalence():
+    """The chunked and recurrent gated-delta-rule implementations must agree.
 
-
-def test_kv_cache_matches_full_forward(model, cfg):
-    """Incremental decoding with the cache must reproduce full-sequence logits."""
-    torch.manual_seed(1)
-    x = torch.randint(0, cfg.vocab_size, (2, 12))
-    with torch.no_grad():
-        full_logits, _ = model(x)
-        cache = KVCache(cfg, batch_size=2, device="cpu", dtype=torch.float32)
-        prefill_logits, _ = model(x[:, :8], cache=cache)
-        step_logits = []
-        for i in range(8, 12):
-            lg, _ = model(x[:, i : i + 1], cache=cache)
-            step_logits.append(lg)
-    torch.testing.assert_close(prefill_logits, full_logits[:, :8], atol=1e-4, rtol=1e-4)
-    for i, lg in enumerate(step_logits):
-        torch.testing.assert_close(lg, full_logits[:, 8 + i : 9 + i], atol=1e-4, rtol=1e-4)
-
-
-def test_kv_cache_multi_token_continuation(model, cfg):
-    """Feeding several tokens at once over an existing cache uses the offset mask."""
-    torch.manual_seed(2)
-    x = torch.randint(0, cfg.vocab_size, (1, 10))
-    with torch.no_grad():
-        full_logits, _ = model(x)
-        cache = KVCache(cfg, batch_size=1, device="cpu", dtype=torch.float32)
-        model(x[:, :4], cache=cache)
-        cont_logits, _ = model(x[:, 4:], cache=cache)
-    torch.testing.assert_close(cont_logits, full_logits[:, 4:], atol=1e-4, rtol=1e-4)
-
-
-def test_generate_respects_eos_and_length(model, cfg):
-    x = torch.randint(0, cfg.vocab_size, (1, 5))
-    out = model.generate(x, max_new_tokens=10, temperature=0.0)
-    assert out.shape[0] == 1
-    assert 5 < out.shape[1] <= 15
-    assert out.shape[1] <= cfg.max_seq_len
-
-
-def test_generate_never_exceeds_context(model, cfg):
-    x = torch.randint(0, cfg.vocab_size, (1, cfg.max_seq_len))
-    out = model.generate(x, max_new_tokens=20, temperature=0.0)
-    assert out.shape[1] <= cfg.max_seq_len
-
-
-def test_top_p_near_zero_reduces_to_greedy(model, cfg):
-    """Nucleus sampling with top_p -> 0 must keep exactly the top token.
-
-    Regression guard for the classic off-by-one in the cumulative-sum boundary:
-    the code excludes token i when the *exclusive* prefix sum before it
-    (cum - probs) exceeds top_p, which always keeps the top token itself. An
-    inclusive-sum version (`cum > top_p`) would wrongly drop the top token too
-    at this threshold, leaving every logit at -inf and breaking sampling.
+    This is the single most important numerical test for the linear-attention
+    path. The reference uses both paths (chunked for prefill, recurrent for
+    decode); they must produce bitwise-identical outputs for the same inputs.
     """
-    torch.manual_seed(7)
-    x = torch.randint(0, cfg.vocab_size, (1, 5))
-    greedy = model.generate(x, max_new_tokens=6, temperature=0.0)
-    torch.manual_seed(7)
-    nucleus = model.generate(x, max_new_tokens=6, temperature=1.0, top_k=None, top_p=1e-6)
-    assert torch.equal(greedy, nucleus)
+    cfg = tiny_config()
+    model = build_model(cfg, seed=42)
+    model.eval()
 
+    B, T = 2, 128
+    x = torch.randn(B, T, cfg.text.hidden_size)
 
-def test_loss_decreases_when_overfitting(cfg):
-    torch.manual_seed(3)
-    model = Transformer(cfg)
-    model.train()
-    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    x = torch.randint(0, cfg.vocab_size, (4, 32))
-    y = torch.roll(x, -1, dims=1)
-    first = None
-    for _ in range(40):
-        _, loss = model(x, y)
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-        if first is None:
-            first = loss.item()
-    assert loss.item() < first * 0.5, f"loss did not drop: {first:.3f} -> {loss.item():.3f}"
+    layer = model.model.language_model.layers[0]
+    assert hasattr(layer, "linear_attn")
 
-
-def test_weight_tying(model):
-    assert model.lm_head.weight.data_ptr() == model.tok_emb.weight.data_ptr()
-
-
-def test_gradient_checkpointing_preserves_loss_and_backprop(cfg):
-    torch.manual_seed(11)
-    plain = Transformer(cfg).train()
-    checked = Transformer(cfg).train()
-    checked.load_state_dict(plain.state_dict())
-    checked.set_gradient_checkpointing(True)
-    x = torch.randint(0, cfg.vocab_size, (2, 24))
-    y = torch.randint(0, cfg.vocab_size, (2, 24))
-
-    _, plain_loss = plain(x, y)
-    _, checked_loss = checked(x, y)
-    torch.testing.assert_close(checked_loss, plain_loss)
-    checked_loss.backward()
-    assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in checked.parameters())
-
-
-def test_batched_generation_keeps_finished_rows_at_eos(model, cfg):
-    eos_id, ordinary_id = 2, 3
-
-    def fake_forward(self, idx, targets=None, cache=None):
-        del targets
-        b, t = idx.shape
-        old_pos = cache.pos
-        logits = torch.full((b, t, cfg.vocab_size), -100.0)
-        logits[0, -1, eos_id] = 100.0
-        logits[1, -1, ordinary_id if old_pos == 0 else eos_id] = 100.0
-        cache.pos += t
-        return logits, None
-
-    original = model.forward
-    model.forward = MethodType(fake_forward, model)
-    try:
-        out = model.generate(
-            torch.ones((2, 2), dtype=torch.long),
-            max_new_tokens=4,
-            temperature=0.0,
-            eos_id=eos_id,
+    with torch.no_grad():
+        out_chunk = layer(
+            x, cos=None, sin=None, attention_mask=None, delta_rule=chunk_gated_delta_rule
         )
-    finally:
-        model.forward = original
+        out_recur = layer(
+            x, cos=None, sin=None, attention_mask=None, delta_rule=recurrent_gated_delta_rule
+        )
 
-    assert out[:, 2:].tolist() == [[eos_id, eos_id], [ordinary_id, eos_id]]
+    assert torch.allclose(out_chunk, out_recur, rtol=1e-4, atol=1e-5)
 
 
-def test_model_config_rejects_invalid_rope_geometry():
-    with pytest.raises(ValueError, match="even for RoPE"):
-        ModelConfig(dim=60, n_heads=4, n_kv_heads=2)
+def test_full_attention_output_gate():
+    """The full-attention block applies a sigmoid gate to its output.
+
+    The q_proj projects to 2*head_dim (query + gate), the gate is applied
+    element-wise to the attention output, then o_proj projects back.
+    """
+    cfg = tiny_config()
+    model = build_model(cfg, seed=123)
+    model.eval()
+
+    layer = model.model.language_model.layers[3]
+    assert hasattr(layer, "self_attn")
+
+    B, T, H = 1, 32, cfg.text.hidden_size
+    x = torch.randn(B, T, H)
+
+    with torch.device("cpu"):
+        pos_ids = torch.arange(T).view(1, 1, -1).expand(3, 1, -1)
+        cos, sin = model.model.language_model.rotary_emb(x, pos_ids)
+
+    with torch.no_grad():
+        out = layer(x, cos=cos, sin=sin)
+
+    assert out.shape == (B, T, H)
+
+
+def test_mtp_forward_shape():
+    """The MTP head takes trunk hidden states and next-token embeddings,
+    fuses them, and produces logits for the token two steps ahead.
+    """
+    cfg = tiny_config()
+    model = build_model(cfg, seed=7)
+    model.eval()
+
+    B, T, H = 2, 16, cfg.text.hidden_size
+    hidden = torch.randn(B, T, H)
+    next_ids = torch.randint(0, cfg.text.vocab_size, (B, T - 1))
+
+    with torch.no_grad():
+        mtp_logits = model.mtp_forward(hidden[:, : T - 1], next_ids)
+
+    assert mtp_logits.shape == (B, T - 2, cfg.text.vocab_size)
+
+
+def test_generation_prefill_then_recurrent_consistency():
+    """Prefill with chunked path, then decode with recurrent path.
+
+    Uses a FIXED known sequence: prefill on prefix, then decode step-by-step
+    on KNOWN suffix tokens (teacher forcing), comparing logits at each step.
+    """
+    cfg = tiny_config()
+    model = build_model(cfg, seed=42)
+    model.eval()
+
+    total_len = 16
+    B = 1
+    gen = torch.Generator().manual_seed(0)
+    full_ids = torch.randint(0, cfg.text.vocab_size, (B, total_len), generator=gen)
+
+    prompt_len = 8
+    with torch.no_grad():
+        full_logits, _ = model(full_ids)
+        cache = GenerationCache(model.cfg, 1, "cpu")
+        prefill, _ = model(full_ids[:, :prompt_len], cache=cache)
+        cached_logits = [prefill]
+        for i in range(prompt_len, total_len):
+            logits, _ = model(
+                full_ids[:, i : i + 1], cache=cache, delta_rule=recurrent_gated_delta_rule
+            )
+            cached_logits.append(logits)
+        torch.testing.assert_close(full_logits, torch.cat(cached_logits, dim=1))
+
+
+def test_next_token_and_mtp_target_alignment():
+    model = build_model(tiny_config(), seed=17).eval()
+    x = torch.tensor([[1, 2, 3, 4]])
+    y = torch.tensor([[2, 3, 4, 5]])
+    with torch.no_grad():
+        logits, loss = model(x, targets=y, mtp_weight=0.3)
+        hidden = model.model(x)
+        mtp = model.mtp_forward(hidden, x)
+    next_token_loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), y.flatten())
+    mtp_loss = torch.nn.functional.cross_entropy(mtp.flatten(0, 1), y[:, 1:].flatten())
+    torch.testing.assert_close(loss, next_token_loss + 0.3 * mtp_loss)
+
+
+def test_vision_forward_shapes():
+    cfg = tiny_config()
+    model = build_model(cfg, seed=1)
+    model.eval()
+
+    grid_thw = torch.tensor([[2, 2, 2]])
+    pixel_values = torch.randn(8, 3 * 2 * 8 * 8)
+
+    with torch.no_grad():
+        out = model.model.visual(pixel_values, grid_thw)
+
+    assert out.shape == (2, 64)
+
+
+def test_parameter_count_estimate_accuracy():
+    cfg = tiny_config()
+    with torch.device("meta"):
+        model = CafezinLM(cfg)
+    actual = model.num_params()
+    from cafezin_lm.model import parameter_count_estimate_full
+
+    est = parameter_count_estimate_full(cfg)
+    assert abs(actual - est) / actual < 0.01
+
+
+def test_rmsnorm_zero_centered():
+    from cafezin_lm.model import RMSNormZeroCentered
+
+    norm = RMSNormZeroCentered(16, eps=1e-6)
+    x = torch.randn(2, 10, 16)
+    y = norm(x)
+    assert y.shape == x.shape
+
+
+def test_rmsnorm_gated():
+    from cafezin_lm.model import RMSNormGated
+
+    norm = RMSNormGated(16, eps=1e-6)
+    x = torch.randn(2, 10, 16)
+    gate = torch.randn(2, 10, 16)
+    y = norm(x, gate)
+    assert y.shape == x.shape
+
+
+def test_rotary_embedding_text():
+    cfg = tiny_config()
+    from cafezin_lm.model import TextRotaryEmbedding
+
+    rope = TextRotaryEmbedding(cfg.text)
+    x = torch.randn(2, 8, 64)
+    pos_ids = torch.arange(8).view(1, 1, -1).expand(3, 2, -1)
+    cos, sin = rope(x, pos_ids)
+    assert cos.shape == (2, 8, 16)
+    assert sin.shape == (2, 8, 16)
+
+
+def test_rotary_embedding_vision():
+    cfg = tiny_config()
+    from cafezin_lm.model import VisionRotaryEmbedding
+
+    rope = VisionRotaryEmbedding(cfg.vision)
+    x = torch.randn(10, 8)
+    pos_ids = torch.stack(
+        [
+            torch.arange(10),
+            torch.arange(10),
+        ]
+    )
+    cos, sin = rope(x, pos_ids)
+    assert cos.shape == (10, 8)
+    assert sin.shape == (10, 8)

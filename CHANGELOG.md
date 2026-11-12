@@ -1,10 +1,29 @@
 # Changelog
 
-All notable changes to Pico-LM are documented here. The format follows
+All notable changes to Cafezin LM are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+
+- Renamed the project to Cafezin LM.
+- Replaced the previous decoder with a PyTorch implementation of dense multimodal
+  Qwen3.5. The full preset follows the pinned Maritaca AI S5-nano configuration.
+- Released the Cafezin LM source under Apache License 2.0.
+- Added CPU-sized training, checkpoint export and text generation through the
+  `cafezin-lm` CLI. Checkpoints carry the tokenizer supplied during data preparation.
+
+### Fixed
+
+- Matched the pinned S5-nano checkpoint's 738 tensor names, shapes and dtypes.
+  Vision normalization now runs per patch before projection.
+- Aligned the next-token and multi-token losses and restored model, optimizer,
+  scheduler and RNG state when resuming training.
+- Fixed selective SafeTensors reads and rejected incomplete exports.
+- Updated CI to exercise the current tree and test the training and export path
+  with local fixtures.
 
 ### September audit corrections
 
@@ -46,16 +65,16 @@ plumbing alone.
 
 ### Added
 
-- **`pico-lm bench`** — the behavioural harness the rest of this release is judged
+- **Behavioural evaluation** — the behavioural harness the rest of this release is judged
   by. Four probes with explicit chance baselines: grammaticality minimal pairs
   (50%), 4-way cloze (25%), free-generation degeneracy, and greedy exact-match
   instruction following. This is load-bearing rather than decorative; see below.
-- **`pico-lm prepare-sft` / `pico-lm finetune`** — supervised fine-tuning with
+- **Supervised fine-tuning** — supervised fine-tuning with
   response-masked loss, example-aligned batches, its own LR schedule,
   `--init-from`, resume, and `best.pt` selected on a held-out behavioural score.
   Dev and test splits are disjoint, so the reported number is not the selection
   metric.
-- **`pico-lm quantize --bits 8|4`** — weight-only post-training quantization,
+- **4-bit and 8-bit quantization** — weight-only post-training quantization,
   group-wise or per-channel, optionally including the tied embedding.
 - **Distillation** — KL-on-logits plus the hard-label term, temperature
   configurable, with an equal-budget from-scratch control to compare against.

@@ -1,10 +1,11 @@
 [project]
-name = "pico-lm"
-version = "0.2.0"
-description = "A local language-model learning and experiment stack"
+name = "cafezin-lm"
+version = "0.3.0a1"
+description = "Experimental PyTorch implementation of dense multimodal Qwen3.5"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "CC-BY-NC-SA-4.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Matheus Soranzo", email = "matheussoranco@gmail.com" }]
 keywords = ["llm", "transformer", "language-model", "pytorch", "from-scratch", "local-llm"]
 classifiers = [
@@ -22,10 +23,10 @@ data = ["datasets>=2.18,<3.0"]
 dev = ["pytest>=7.0,<9.0", "ruff==0.15.2"]  # ruff pinned: see .github/workflows/ci.yml
 
 [project.scripts]
-pico-lm = "pico_lm.cli:main"
+cafezin-lm = "cafezin_lm.cli:main"
 
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
