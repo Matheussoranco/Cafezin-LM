@@ -6,7 +6,8 @@ This script orchestrates the full evaluation pipeline:
 2. Runs Portuguese benchmark tasks
 3. Computes bits-per-UTF-8-byte metric
 4. Compares baseline and candidate models
-5. Generates comprehensive report
+5. Runs generative evaluation (MT-Bench/LLM-judge style)
+6. Generates comprehensive report
 
 Usage:
     python scripts/run_eval.py --baseline-model /path/to/baseline --candidate-model /path/to/candidate --output-dir results/
@@ -43,6 +44,13 @@ def main() -> int:
     parser.add_argument("--skip-metadata", action="store_true", help="Skip metadata recording")
     parser.add_argument("--skip-perplexity", action="store_true", help="Skip perplexity computation")
     parser.add_argument("--skip-comparison", action="store_true", help="Skip model comparison")
+    parser.add_argument("--skip-generative", action="store_true", help="Skip generative evaluation")
+    parser.add_argument("--generative-prompts", default="eval/generative/prompts_v1.json", help="Path to generative prompts JSON")
+    parser.add_argument("--generative-rubric", default="eval/generative/rubric_v1.json", help="Path to generative rubric JSON")
+    parser.add_argument("--judge-model", default="heuristic", help="Judge model for generative eval (heuristic, gpt-4o, etc.)")
+    parser.add_argument("--gen-temperature", type=float, default=0.7, help="Generation temperature for generative eval")
+    parser.add_argument("--gen-top-p", type=float, default=0.9, help="Generation top-p for generative eval")
+    parser.add_argument("--gen-max-tokens", type=int, default=1024, help="Max tokens for generative eval")
 
     args = parser.parse_args()
 
@@ -187,9 +195,36 @@ def main() -> int:
         if result.returncode != 0:
             print("Warning: Model comparison failed")
 
-    # Step 6: Generate final summary report
+    # Step 6: Generative evaluation (MT-Bench/LLM-judge style)
+    if not args.skip_generative:
+        print("\n" + "=" * 60)
+        print("Step 6: Generative evaluation (Brazilian Portuguese)")
+        print("=" * 60)
+        generative_dir = output_dir / "generative"
+        generative_dir.mkdir(parents=True, exist_ok=True)
+        result = run_script(
+            scripts_dir / "eval_generative_br.py",
+            [
+                "--baseline-model", args.baseline_model,
+                "--candidate-model", args.candidate_model,
+                "--tokenizer-path", args.tokenizer_path,
+                "--output-dir", str(generative_dir),
+                "--prompts", args.generative_prompts,
+                "--rubric", args.generative_rubric,
+                "--judge-model", args.judge_model,
+                "--device", args.device,
+                "--temperature", str(args.gen_temperature),
+                "--top-p", str(args.gen_top_p),
+                "--max-tokens", str(args.gen_max_tokens),
+            ] + (["--limit", str(args.limit)] if args.limit else []),
+            cwd=project_root,
+        )
+        if result.returncode != 0:
+            print("Warning: Generative evaluation failed")
+
+    # Step 7: Generate final summary report
     print("\n" + "=" * 60)
-    print("Step 6: Generating final report")
+    print("Step 7: Generating final report")
     print("=" * 60)
 
     summary = {
@@ -203,6 +238,10 @@ def main() -> int:
             "batch_size": args.batch_size,
             "num_fewshot": args.num_fewshot,
             "limit": args.limit,
+            "generative_eval": not args.skip_generative,
+            "generative_prompts": args.generative_prompts,
+            "generative_rubric": args.generative_rubric,
+            "judge_model": args.judge_model,
         },
         "outputs": {
             "metadata": str(output_dir / "eval_metadata.json"),
@@ -210,6 +249,7 @@ def main() -> int:
             "candidate_results": str(candidate_dir),
             "perplexity": str(output_dir / "perplexity"),
             "comparison": str(output_dir / "comparison" / "comparison_report.md"),
+            "generative": str(output_dir / "generative" / "generative_eval_report.md") if not args.skip_generative else None,
         },
     }
 
@@ -222,6 +262,8 @@ def main() -> int:
     print(f"Results saved to: {output_dir}")
     print(f"Summary: {output_dir / 'evaluation_summary.json'}")
     print(f"Comparison report: {output_dir / 'comparison' / 'comparison_report.md'}")
+    if not args.skip_generative:
+        print(f"Generative report: {output_dir / 'generative' / 'generative_eval_report.md'}")
 
     return 0
 

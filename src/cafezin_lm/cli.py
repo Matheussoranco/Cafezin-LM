@@ -10,6 +10,9 @@ Commands:
   generate         sample from a checkpoint (or a fresh model)
   tokenizer-extend extend tokenizer with new tokens and grow embeddings
   tokenizer-stats  measure tokenization statistics on a corpus
+  continue-pretrain continued pretraining from S5-nano (MS-001)
+  download-s5nano  download S5-nano checkpoint to local cache
+  smoke-test       clean reload and generate on CPU fixture
 """
 
 from __future__ import annotations
@@ -33,7 +36,21 @@ from .checkpoint import (
     spec_digest,
     verify_offline,
 )
-from .config import PRESET_NAMES, ModelConfig, preset, tiny_config
+from .config import (
+    PRESET_NAMES,
+    REFERENCE_REPO,
+    REFERENCE_REVISION,
+    ModelConfig,
+    preset,
+    tiny_config,
+)
+from .continued_pretrain import (
+    ContinuedPretrainConfig,
+    continued_pretrain,
+    continued_pretrain_from_config,
+    download_s5nano_checkpoint,
+    smoke_test_cpu,
+)
 from .data import load_meta, prepare
 from .model import (
     CafezinLM,
@@ -299,6 +316,77 @@ def cmd_tokenizer_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_continue_pretrain(args: argparse.Namespace) -> int:
+    """Run continued pretraining from S5-nano (MS-001)."""
+    if args.config:
+        config_path = Path(args.config)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        return 0 if continued_pretrain_from_config(config_path) else 1
+
+    cfg = ContinuedPretrainConfig(
+        source_repo=args.source_repo,
+        source_revision=args.source_revision,
+        source_cache_dir=args.source_cache_dir,
+        tokenizer_path=args.tokenizer,
+        data_dir=args.data_dir,
+        out_dir=args.out_dir,
+        seed=args.seed,
+        seq_len=args.seq_len,
+        batch_size=args.batch_size,
+        grad_accum=args.grad_accum,
+        steps=args.steps,
+        eval_every=args.eval_every,
+        eval_batches=args.eval_batches,
+        lr=args.lr,
+        min_lr=args.min_lr,
+        warmup_steps=args.warmup_steps,
+        weight_decay=args.weight_decay,
+        beta1=args.beta1,
+        beta2=args.beta2,
+        grad_clip=args.grad_clip,
+        gradient_checkpointing=args.gradient_checkpointing,
+        mtp_weight=args.mtp_weight,
+        compile_model=args.compile,
+        log_every=args.log_every,
+        save_every=args.save_every,
+        keep_last=args.keep_last,
+        device=args.device,
+        dtype=args.dtype,
+        torch_seed=args.torch_seed,
+        resume=args.resume,
+        resume_step=args.resume_step,
+    )
+
+    checkpoint = continued_pretrain(cfg)
+    print(f"Continued pretraining complete. Final checkpoint: {checkpoint}")
+
+    # Run smoke test if requested
+    if args.smoke_test:
+        if not args.tokenizer:
+            raise ValueError("--tokenizer is required for --smoke-test")
+        smoke_test_cpu(checkpoint, args.tokenizer, args.prompt, args.max_new)
+
+    return 0
+
+
+def cmd_download_s5nano(args: argparse.Namespace) -> int:
+    """Download S5-nano checkpoint to local cache."""
+    cache_dir = download_s5nano_checkpoint(
+        cache_dir=args.cache_dir,
+        repo=args.source_repo,
+        revision=args.source_revision,
+    )
+    print(f"S5-nano checkpoint downloaded to: {cache_dir}")
+    return 0
+
+
+def cmd_smoke_test(args: argparse.Namespace) -> int:
+    """Run smoke test: clean reload and generate on CPU."""
+    smoke_test_cpu(args.checkpoint, args.tokenizer, args.prompt, args.max_new)
+    return 0
+
+
 def cmd_tokenizer_extend(args: argparse.Namespace) -> int:
     # Load base tokenizer
     base_tok = Tokenizer(args.tokenizer)
@@ -379,7 +467,7 @@ def cmd_tokenizer_extend(args: argparse.Namespace) -> int:
         grow_embeddings(model, base_tok, extended_tok, new_tokens)
 
         # Export extended checkpoint
-        from .checkpoint import save_hf_checkpoint, checkpoint_assets
+        from .checkpoint import save_hf_checkpoint
         assets = {"tokenizer.json": extended_tok.path.read_bytes()}
         manifest = save_hf_checkpoint(
             model=model,
@@ -510,10 +598,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--heldout", help="held-out corpus file for gain measurement")
     p.add_argument("--out-tokenizer", required=True, help="output path for extended tokenizer.json")
     p.add_argument("--out-checkpoint", help="output directory for extended checkpoint (optional)")
-    p.add_argument("--checkpoint", help="checkpoint directory to grow embeddings for (required with --out-checkpoint)")
-    p.add_argument("--min-frequency", type=int, default=10, help="minimum frequency for candidate tokens")
-    p.add_argument("--max-candidates", type=int, default=500, help="maximum number of candidate tokens to add")
-    p.add_argument("--dry-run", action="store_true", help="report candidates and gains without writing files")
+    p.add_argument(
+        "--checkpoint",
+        help="checkpoint directory to grow embeddings for "
+        "(required with --out-checkpoint)",
+    )
+    p.add_argument(
+        "--min-frequency", type=int, default=10, help="minimum frequency for candidate tokens"
+    )
+    p.add_argument(
+        "--max-candidates", type=int, default=500, help="maximum number of candidate tokens to add"
+    )
+    p.add_argument(
+        "--dry-run", action="store_true", help="report candidates and gains without writing files"
+    )
     p.set_defaults(func=cmd_tokenizer_extend)
 
     # tokenizer-stats
@@ -521,6 +619,72 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tokenizer", required=True, help="tokenizer.json to evaluate")
     p.add_argument("--corpus", required=True, help="corpus file to measure")
     p.set_defaults(func=cmd_tokenizer_stats)
+
+    # continue-pretrain
+    p = sub.add_parser(
+        "continue-pretrain", help="continued pretraining from S5-nano (MS-001)"
+    )
+    p.add_argument("--config", help="JSON config file with 'continued_pretrain' section")
+    p.add_argument("--source-repo", default=REFERENCE_REPO, help="HF repo for S5-nano checkpoint")
+    p.add_argument("--source-revision", default=REFERENCE_REVISION, help="HF revision for S5-nano")
+    p.add_argument("--source-cache-dir", help="local cache directory for S5-nano checkpoint")
+    p.add_argument("--tokenizer", help="extended tokenizer.json for vocabulary growth")
+    p.add_argument("--data-dir", default="data", help="prepared data directory")
+    p.add_argument("--out-dir", default="out-continued", help="output directory for checkpoints")
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--seq-len", type=int, default=2048, help="sequence length (2048 baseline, 4096 stretch)"
+    )
+    p.add_argument("--batch-size", type=int, default=1, help="microbatch size")
+    p.add_argument("--grad-accum", type=int, default=32, help="gradient accumulation steps")
+    p.add_argument("--steps", type=int, default=100_000)
+    p.add_argument("--eval-every", type=int, default=1_000)
+    p.add_argument("--eval-batches", type=int, default=32)
+    p.add_argument("--lr", type=float, default=3e-4, help="peak learning rate")
+    p.add_argument("--min-lr", type=float, default=3e-5)
+    p.add_argument("--warmup-steps", type=int, default=2_000, help="warmup steps for fresh Adam")
+    p.add_argument("--weight-decay", type=float, default=0.1)
+    p.add_argument("--beta1", type=float, default=0.9)
+    p.add_argument("--beta2", type=float, default=0.95)
+    p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument("--gradient-checkpointing", action="store_true", default=True)
+    p.add_argument(
+        "--no-gradient-checkpointing", dest="gradient_checkpointing", action="store_false"
+    )
+    p.add_argument("--mtp-weight", type=float, default=0.3)
+    p.add_argument("--compile", action="store_true")
+    p.add_argument("--log-every", type=int, default=50)
+    p.add_argument("--save-every", type=int, default=5_000)
+    p.add_argument("--keep-last", type=int, default=3)
+    p.add_argument("--device", default="cuda")
+    p.add_argument(
+        "--dtype",
+        choices=["float32", "bfloat16", "float16"],
+        default="bfloat16",
+        help="training precision",
+    )
+    p.add_argument("--torch-seed", type=int)
+    p.add_argument("--resume", help="resume from checkpoint directory")
+    p.add_argument("--resume-step", type=int)
+    p.add_argument("--smoke-test", action="store_true", help="run smoke test after training")
+    p.add_argument("--prompt", default="Olá, mundo!", help="prompt for smoke test")
+    p.add_argument("--max-new", type=int, default=32, help="max new tokens for smoke test")
+    p.set_defaults(func=cmd_continue_pretrain)
+
+    # download-s5nano
+    p = sub.add_parser("download-s5nano", help="download S5-nano checkpoint to local cache")
+    p.add_argument("--source-repo", default=REFERENCE_REPO, help="HF repo for S5-nano checkpoint")
+    p.add_argument("--source-revision", default=REFERENCE_REVISION, help="HF revision for S5-nano")
+    p.add_argument("--cache-dir", help="local cache directory")
+    p.set_defaults(func=cmd_download_s5nano)
+
+    # smoke-test
+    p = sub.add_parser("smoke-test", help="clean reload and generate on CPU fixture")
+    p.add_argument("--checkpoint", required=True, help="checkpoint directory")
+    p.add_argument("--tokenizer", required=True, help="tokenizer.json")
+    p.add_argument("--prompt", default="Olá, mundo!")
+    p.add_argument("--max-new", type=int, default=32)
+    p.set_defaults(func=cmd_smoke_test)
 
     return parser
 

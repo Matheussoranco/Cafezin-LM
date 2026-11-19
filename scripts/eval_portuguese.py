@@ -26,7 +26,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 PORTUGUESE_TASKS = {
     # Core Portuguese benchmarks (from lm-eval main + portuguese_bench)
     "core": [

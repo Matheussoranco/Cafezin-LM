@@ -168,7 +168,7 @@ def generate_report(
 ) -> None:
     """Generate a human-readable comparison report."""
     with open(output_path, "w") as f:
-        f.write(f"# Model Comparison Report\n\n")
+        f.write("# Model Comparison Report\n\n")
         f.write(f"**Baseline:** {baseline_name}\n")
         f.write(f"**Candidate:** {candidate_name}\n\n")
 
@@ -190,7 +190,7 @@ def generate_report(
         for task, data in comparison["task_comparison"].items():
             f.write(f"### {task}\n")
             if data["status"] == "missing":
-                f.write(f"- Status: Missing in one or both models\n")
+                f.write("- Status: Missing in one or both models\n")
                 f.write(f"- Baseline: {data['baseline']}\n")
                 f.write(f"- Candidate: {data['candidate']}\n\n")
             else:

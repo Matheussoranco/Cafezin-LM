@@ -70,11 +70,11 @@ __all__ = [
     "extend_tokenizer",
     "grow_embeddings",
     "import_config",
+    "load_extended_checkpoint",
     "load_file",
     "load_header",
     "load_hf_checkpoint",
     "load_meta",
-    "load_extended_checkpoint",
     "mean_decomposition_init",
     "measure_tokenization_stats",
     "mine_candidate_tokens",
@@ -90,8 +90,8 @@ __all__ = [
     "save_hf_checkpoint",
     "tiny_config",
     "train",
-    "verify_round_trip",
     "verify_offline",
+    "verify_round_trip",
 ]
 
 __version__ = "0.3.0a1"

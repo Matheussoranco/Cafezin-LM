@@ -9,7 +9,6 @@ This module provides utilities to:
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
     from .config import TextConfig
 
 
-def count_token_frequencies(tokenizer: "Tokenizer", texts: list[str]) -> Counter[int]:
+def count_token_frequencies(tokenizer: Tokenizer, texts: list[str]) -> Counter[int]:
     """Count token frequencies in a list of texts using the given tokenizer."""
     freq: Counter[int] = Counter()
     for text in texts:
@@ -32,7 +31,7 @@ def count_token_frequencies(tokenizer: "Tokenizer", texts: list[str]) -> Counter
 
 
 def mine_candidate_tokens(
-    tokenizer: "Tokenizer",
+    tokenizer: Tokenizer,
     corpus_texts: list[str],
     min_frequency: int = 10,
     max_candidates: int = 1000,
@@ -106,7 +105,7 @@ def mine_candidate_tokens(
 
 
 def measure_tokenization_stats(
-    tokenizer: "Tokenizer", texts: list[str]
+    tokenizer: Tokenizer, texts: list[str]
 ) -> dict[str, float]:
     """Measure tokenization statistics on a list of texts.
 
@@ -128,8 +127,8 @@ def measure_tokenization_stats(
 
 
 def compute_tokenization_gain(
-    original_tokenizer: "Tokenizer",
-    extended_tokenizer: "Tokenizer",
+    original_tokenizer: Tokenizer,
+    extended_tokenizer: Tokenizer,
     heldout_texts: list[str],
 ) -> dict[str, float]:
     """Compute tokenization gains and regressions on held-out texts.
@@ -159,10 +158,10 @@ def compute_tokenization_gain(
 
 
 def extend_tokenizer(
-    tokenizer: "Tokenizer",
+    tokenizer: Tokenizer,
     new_tokens: list[str],
     output_path: str | Path,
-) -> "Tokenizer":
+) -> Tokenizer:
     """Extend a tokenizer with new tokens, preserving all existing IDs.
 
     Args:
@@ -173,7 +172,6 @@ def extend_tokenizer(
     Returns:
         A new Tokenizer instance wrapping the extended tokenizer.
     """
-    from tokenizers import Tokenizer as HFTokenizer
 
     hf_tok = tokenizer._tokenizer
     vocab = hf_tok.get_vocab(with_added_tokens=True)
@@ -198,7 +196,7 @@ def extend_tokenizer(
     return Tokenizer(output_path, eos_token_id=tokenizer.eos_token_id)
 
 
-def decompose_token(tokenizer: "Tokenizer", token: str) -> list[int]:
+def decompose_token(tokenizer: Tokenizer, token: str) -> list[int]:
     """Decompose a token string into its subtoken IDs under the original tokenizer.
 
     Args:
@@ -217,7 +215,7 @@ def decompose_token(tokenizer: "Tokenizer", token: str) -> list[int]:
 
 def mean_decomposition_init(
     original_embeddings: torch.Tensor,
-    tokenizer: "Tokenizer",
+    tokenizer: Tokenizer,
     new_tokens: list[str],
 ) -> torch.Tensor:
     """Initialize new embedding rows from mean decomposition under original tokenizer.
@@ -250,8 +248,8 @@ def mean_decomposition_init(
 
 def grow_embeddings(
     model: torch.nn.Module,
-    original_tokenizer: "Tokenizer",
-    extended_tokenizer: "Tokenizer",
+    original_tokenizer: Tokenizer,
+    extended_tokenizer: Tokenizer,
     new_tokens: list[str],
     embedding_attr: str = "model.language_model.embed_tokens",
 ) -> torch.nn.Module:
@@ -336,9 +334,9 @@ def grow_embeddings(
 
 def export_extended_checkpoint(
     model: torch.nn.Module,
-    extended_tokenizer: "Tokenizer",
+    extended_tokenizer: Tokenizer,
     output_dir: str | Path,
-    config: "TextConfig | None" = None,
+    config: TextConfig | None = None,
     dtype_override: str | None = None,
 ) -> dict:
     """Export a model with extended tokenizer as a matched tokenizer/checkpoint pair.
@@ -356,7 +354,7 @@ def export_extended_checkpoint(
     Returns:
         Export manifest dictionary.
     """
-    from .checkpoint import save_hf_checkpoint, checkpoint_assets
+    from .checkpoint import save_hf_checkpoint
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -383,9 +381,9 @@ def export_extended_checkpoint(
 def load_extended_checkpoint(
     checkpoint_dir: str | Path,
     model_class,
-    config: "TextConfig | None" = None,
+    config: TextConfig | None = None,
     device: str | torch.device = "cpu",
-) -> tuple[torch.nn.Module, "Tokenizer"]:
+) -> tuple[torch.nn.Module, Tokenizer]:
     """Load a checkpoint with its matched extended tokenizer.
 
     Args:
@@ -397,7 +395,7 @@ def load_extended_checkpoint(
     Returns:
         Tuple of (model, tokenizer).
     """
-    from .checkpoint import load_hf_checkpoint, import_config
+    from .checkpoint import import_config, load_hf_checkpoint
     from .tokenizer import Tokenizer
 
     checkpoint_dir = Path(checkpoint_dir)
@@ -423,8 +421,8 @@ def load_extended_checkpoint(
 
 
 def verify_round_trip(
-    original_tokenizer: "Tokenizer",
-    extended_tokenizer: "Tokenizer",
+    original_tokenizer: Tokenizer,
+    extended_tokenizer: Tokenizer,
     original_model: torch.nn.Module,
     extended_model: torch.nn.Module,
     test_texts: list[str],

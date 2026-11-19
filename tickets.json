@@ -1,0 +1,42 @@
+[
+  {
+    "id": "01",
+    "title": "Prefactor: tokenizer extension infrastructure",
+    "blocked_by": []
+  },
+  {
+    "id": "02",
+    "title": "Data: Portuguese corpus curation with extended tokenizer",
+    "blocked_by": ["01"]
+  },
+  {
+    "id": "03",
+    "title": "Model: continued pretraining pipeline on single GPU",
+    "blocked_by": ["01", "02"]
+  },
+  {
+    "id": "04",
+    "title": "Eval: resolve vision normalization ambiguity",
+    "blocked_by": []
+  },
+  {
+    "id": "05",
+    "title": "Eval: lm-eval harness setup with Portuguese tasks",
+    "blocked_by": []
+  },
+  {
+    "id": "06",
+    "title": "Eval: generative evaluation for Brazilian Portuguese",
+    "blocked_by": ["05"]
+  },
+  {
+    "id": "07",
+    "title": "Release: model card template and rendering",
+    "blocked_by": ["03", "04", "05", "06"]
+  },
+  {
+    "id": "08",
+    "title": "Release: upload script, clean verification, HF publish",
+    "blocked_by": ["07"]
+  }
+]

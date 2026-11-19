@@ -24,7 +24,6 @@ import sys
 from pathlib import Path
 
 import torch
-from tokenizers import Tokenizer as HFTokenizer
 
 from cafezin_lm import Tokenizer, build_model, tiny_config
 
