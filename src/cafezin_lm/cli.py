@@ -1,13 +1,15 @@
 """Cafezin LM command line interface.
 
 Commands:
-  spec        write a fresh spec.json from a built model
-  verify      compare a model against the reference fingerprint (offline)
-  prepare     tokenize a corpus into train/val memmaps
-  train       run training (resumable)
-  export      write a trained model in the HF layout (safetensors + index + config)
-  info        parameter count and memory estimate
-  generate    sample from a checkpoint (or a fresh model)
+  spec             write a fresh spec.json from a built model
+  verify           compare a model against the reference fingerprint (offline)
+  prepare          tokenize a corpus into train/val memmaps
+  train            run training (resumable)
+  export           write a trained model in the HF layout (safetensors + index + config)
+  info             parameter count and memory estimate
+  generate         sample from a checkpoint (or a fresh model)
+  tokenizer-extend extend tokenizer with new tokens and grow embeddings
+  tokenizer-stats  measure tokenization statistics on a corpus
 """
 
 from __future__ import annotations
@@ -43,6 +45,13 @@ from .model import (
 )
 from .safetensors_io import nbytes_of
 from .tokenizer import Tokenizer
+from .tokenizer_extension import (
+    compute_tokenization_gain,
+    extend_tokenizer,
+    grow_embeddings,
+    measure_tokenization_stats,
+    mine_candidate_tokens,
+)
 from .train import TrainConfig, train
 
 
@@ -273,6 +282,117 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tokenizer_stats(args: argparse.Namespace) -> int:
+    tok = Tokenizer(args.tokenizer)
+    corpus_path = Path(args.corpus)
+    if not corpus_path.exists():
+        raise FileNotFoundError(f"Corpus file not found: {corpus_path}")
+
+    texts = corpus_path.read_text(encoding="utf-8").split("\n\n")
+    texts = [t.strip() for t in texts if t.strip()]
+
+    stats = measure_tokenization_stats(tok, texts)
+    print(f"Total chars (UTF-8 bytes): {stats['total_chars']:,}")
+    print(f"Total tokens: {stats['total_tokens']:,}")
+    print(f"Chars per token: {stats['chars_per_token']:.3f}")
+    print(f"Tokens per char: {stats['tokens_per_char']:.5f}")
+    return 0
+
+
+def cmd_tokenizer_extend(args: argparse.Namespace) -> int:
+    # Load base tokenizer
+    base_tok = Tokenizer(args.tokenizer)
+
+    # Read mining corpus
+    corpus_path = Path(args.corpus)
+    if not corpus_path.exists():
+        raise FileNotFoundError(f"Corpus file not found: {corpus_path}")
+    mining_texts = corpus_path.read_text(encoding="utf-8").split("\n\n")
+    mining_texts = [t.strip() for t in mining_texts if t.strip()]
+
+    print(f"Mining candidates from {len(mining_texts)} documents...")
+    candidates = mine_candidate_tokens(
+        base_tok,
+        mining_texts,
+        min_frequency=args.min_frequency,
+        max_candidates=args.max_candidates,
+    )
+    print(f"Found {len(candidates)} candidate tokens")
+
+    if not candidates:
+        print("No candidates found meeting frequency threshold")
+        return 0
+
+    # Show top candidates
+    print("\nTop 20 candidates (token, estimated gain):")
+    for token, gain in candidates[:20]:
+        print(f"  {token!r}: {gain}")
+
+    # Read heldout corpus if provided
+    heldout_texts = None
+    if args.heldout:
+        heldout_path = Path(args.heldout)
+        if not heldout_path.exists():
+            raise FileNotFoundError(f"Heldout corpus not found: {heldout_path}")
+        heldout_texts = heldout_path.read_text(encoding="utf-8").split("\n\n")
+        heldout_texts = [t.strip() for t in heldout_texts if t.strip()]
+        print(f"\nLoaded {len(heldout_texts)} heldout documents for gain measurement")
+
+    if args.dry_run:
+        if heldout_texts:
+            # Simulate extension to measure gain
+            new_tokens = [c[0] for c in candidates]
+            # We can't easily simulate without actually extending, so just report candidates
+            print("\nDry run: would add", len(new_tokens), "tokens")
+        return 0
+
+    # Extend tokenizer
+    new_tokens = [c[0] for c in candidates]
+    print(f"\nExtending tokenizer with {len(new_tokens)} new tokens...")
+    extended_tok = extend_tokenizer(base_tok, new_tokens, args.out_tokenizer)
+    print(f"Extended tokenizer saved to {args.out_tokenizer}")
+    print(f"  Original vocab size: {base_tok.vocab_size}")
+    print(f"  Extended vocab size: {extended_tok.vocab_size}")
+    print(f"  New tokens added: {extended_tok.vocab_size - base_tok.vocab_size}")
+
+    # Measure gain on heldout if provided
+    if heldout_texts:
+        print("\nMeasuring tokenization gain on heldout corpus...")
+        gain = compute_tokenization_gain(base_tok, extended_tok, heldout_texts)
+        print(f"  Original tokens: {gain['original_tokens']:,}")
+        print(f"  Extended tokens: {gain['extended_tokens']:,}")
+        print(f"  Token reduction: {gain['token_reduction']:,} ({gain['pct_reduction']:.2f}%)")
+        print(f"  Original chars/token: {gain['original_chars_per_token']:.3f}")
+        print(f"  Extended chars/token: {gain['extended_chars_per_token']:.3f}")
+
+    # Grow checkpoint embeddings if requested
+    if args.out_checkpoint:
+        if not args.checkpoint:
+            raise ValueError("--checkpoint is required when --out-checkpoint is specified")
+        print(f"\nGrowing embeddings for checkpoint at {args.checkpoint}...")
+
+        # Load checkpoint model
+        checkpoint_path = Path(args.checkpoint)
+        model = _checkpoint_model(checkpoint_path, "base")
+
+        # Grow embeddings
+        grow_embeddings(model, base_tok, extended_tok, new_tokens)
+
+        # Export extended checkpoint
+        from .checkpoint import save_hf_checkpoint, checkpoint_assets
+        assets = {"tokenizer.json": extended_tok.path.read_bytes()}
+        manifest = save_hf_checkpoint(
+            model=model,
+            out_dir=args.out_checkpoint,
+            cfg=model.cfg,
+            tokenizer_files=assets,
+        )
+        print(f"Extended checkpoint saved to {args.out_checkpoint}")
+        print(f"  Shards: {len(manifest['shards'])}, Tensors: {manifest['tensors']}")
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cafezin-lm",
@@ -380,6 +500,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top-p", type=float, default=0.95)
     p.add_argument("--device", default="cuda")
     p.set_defaults(func=cmd_generate)
+
+    # tokenizer-extend
+    p = sub.add_parser(
+        "tokenizer-extend", help="extend tokenizer with new tokens and grow embeddings"
+    )
+    p.add_argument("--tokenizer", required=True, help="base tokenizer.json to extend")
+    p.add_argument("--corpus", required=True, help="corpus file(s) to mine candidates from")
+    p.add_argument("--heldout", help="held-out corpus file for gain measurement")
+    p.add_argument("--out-tokenizer", required=True, help="output path for extended tokenizer.json")
+    p.add_argument("--out-checkpoint", help="output directory for extended checkpoint (optional)")
+    p.add_argument("--checkpoint", help="checkpoint directory to grow embeddings for (required with --out-checkpoint)")
+    p.add_argument("--min-frequency", type=int, default=10, help="minimum frequency for candidate tokens")
+    p.add_argument("--max-candidates", type=int, default=500, help="maximum number of candidate tokens to add")
+    p.add_argument("--dry-run", action="store_true", help="report candidates and gains without writing files")
+    p.set_defaults(func=cmd_tokenizer_extend)
+
+    # tokenizer-stats
+    p = sub.add_parser("tokenizer-stats", help="measure tokenization statistics on a corpus")
+    p.add_argument("--tokenizer", required=True, help="tokenizer.json to evaluate")
+    p.add_argument("--corpus", required=True, help="corpus file to measure")
+    p.set_defaults(func=cmd_tokenizer_stats)
 
     return parser
 

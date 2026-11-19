@@ -36,6 +36,17 @@ from .model import (
 )
 from .safetensors_io import load_file, load_header, save_file
 from .tokenizer import Tokenizer
+from .tokenizer_extension import (
+    compute_tokenization_gain,
+    decompose_token,
+    extend_tokenizer,
+    grow_embeddings,
+    load_extended_checkpoint,
+    mean_decomposition_init,
+    measure_tokenization_stats,
+    mine_candidate_tokens,
+    verify_round_trip,
+)
 from .train import TrainConfig, train
 
 __all__ = [
@@ -53,12 +64,20 @@ __all__ = [
     "base_config",
     "build_model",
     "chunk_gated_delta_rule",
+    "compute_tokenization_gain",
+    "decompose_token",
     "dtype_for_vocab",
+    "extend_tokenizer",
+    "grow_embeddings",
     "import_config",
     "load_file",
     "load_header",
     "load_hf_checkpoint",
     "load_meta",
+    "load_extended_checkpoint",
+    "mean_decomposition_init",
+    "measure_tokenization_stats",
+    "mine_candidate_tokens",
     "model_spec",
     "parameter_count_breakdown",
     "parameter_count_estimate",
@@ -71,6 +90,7 @@ __all__ = [
     "save_hf_checkpoint",
     "tiny_config",
     "train",
+    "verify_round_trip",
     "verify_offline",
 ]
 
