@@ -26,8 +26,8 @@ def test_tokenizer_stats_basic():
         # Create a simple tokenizer for testing
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()
@@ -55,8 +55,8 @@ def test_mine_candidate_tokens():
     with tempfile.TemporaryDirectory() as tmp:
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()
@@ -82,8 +82,8 @@ def test_extend_tokenizer_preserves_ids():
     with tempfile.TemporaryDirectory() as tmp:
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()
@@ -119,8 +119,8 @@ def test_compute_tokenization_gain():
     with tempfile.TemporaryDirectory() as tmp:
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()
@@ -158,8 +158,8 @@ def test_mean_decomposition_init():
     with tempfile.TemporaryDirectory() as tmp:
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()
@@ -187,8 +187,8 @@ def test_grow_embeddings_preserves_original():
     with tempfile.TemporaryDirectory() as tmp:
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()
@@ -234,8 +234,8 @@ def test_verify_round_trip():
     with tempfile.TemporaryDirectory() as tmp:
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()
@@ -286,8 +286,8 @@ def test_export_extended_checkpoint():
     with tempfile.TemporaryDirectory() as tmp:
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers.models import BPE
-        from tokenizers.trainers import BpeTrainer
         from tokenizers.pre_tokenizers import Whitespace
+        from tokenizers.trainers import BpeTrainer
 
         tok = HFTokenizer(BPE(unk_token="[UNK]"))
         tok.pre_tokenizer = Whitespace()

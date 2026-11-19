@@ -16,12 +16,21 @@ import math
 from collections.abc import Iterator
 from pathlib import Path
 
-import numpy as np
 import torch
 
 from .tokenizer import Tokenizer
 
-TOKEN_DTYPES = {"uint32": np.uint32, "uint16": np.uint16, "uint64": np.uint64}
+# numpy is optional — only needed for data preparation and TokenDataset
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - optional dependency
+    np = None  # type: ignore[assignment]
+
+TOKEN_DTYPES = {
+    "uint32": np.uint32,
+    "uint16": np.uint16,
+    "uint64": np.uint64,
+} if np is not None else {}
 
 
 def dtype_for_vocab(vocab_size: int) -> str:
@@ -136,6 +145,10 @@ def prepare(
     The tokenizer's file is copied next to the bins so checkpoints stay
     self-contained.
     """
+    if np is None:
+        raise ImportError(
+            "numpy is required for data preparation. Install with: pip install 'cafezin-lm[data]'"
+        )
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     dtype = dtype or dtype_for_vocab(tokenizer.max_token_id + 1)
@@ -199,6 +212,10 @@ class TokenDataset:
     """Random contiguous windows over a token memmap."""
 
     def __init__(self, bin_path: str | Path, dtype: str = "uint32") -> None:
+        if np is None:
+            raise ImportError(
+                "numpy is required for TokenDataset. Install with: pip install 'cafezin-lm[data]'"
+            )
         path = Path(bin_path)
         if not path.exists():
             raise FileNotFoundError(f"{path} not found — run `cafezin-lm prepare` first")
@@ -242,3 +259,4 @@ def load_meta(data_dir: str | Path) -> dict:
             f"{meta_path} not found — run `cafezin-lm prepare --out {data_dir}` first"
         )
     return json.loads(meta_path.read_text(encoding="utf-8"))
+

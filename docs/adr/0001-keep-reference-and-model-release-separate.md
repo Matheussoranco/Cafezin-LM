@@ -1,0 +1,5 @@
+# Keep the reference implementation and model release separate
+
+Cafezin LM serves three purposes: a reference implementation of the pinned S5-nano architecture, a research platform, and a project that will publish its own multilingual weights specialized for Brazilian Portuguese and Brazilian culture and knowledge. Keep the pinned reference preset as a compatibility target, and publish adapted weights as a distinct Cafezin artifact so experimental changes and capability claims do not redefine upstream compatibility. Stabilize the current architecture before adding variants.
+
+A tensor metadata match is a layout check, not evidence of numerical parity. For vision normalization, compare both settings on the same inputs and weights against a versioned reference, save all three outputs, and require a maximum absolute difference of at most `1e-3` for a match. The earlier run showed the settings differ, but did not complete the reference comparison; no winner is established. Do not claim vision parity until the reference comparison passes.
