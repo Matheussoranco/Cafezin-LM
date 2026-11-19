@@ -3,7 +3,7 @@ name = "cafezin-lm"
 version = "0.3.0a1"
 description = "Experimental PyTorch implementation of dense multimodal Qwen3.5"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Matheus Soranzo", email = "matheussoranco@gmail.com" }]
@@ -14,13 +14,17 @@ classifiers = [
 ]
 dependencies = [
     "torch>=2.2,<3.0",
-    "numpy>=1.24,<2.0",
     "tokenizers>=0.15,<1.0",
 ]
 
 [project.optional-dependencies]
-data = ["datasets>=2.18,<3.0"]
-dev = ["pytest>=7.0,<9.0", "ruff==0.15.2"]  # ruff pinned: see .github/workflows/ci.yml
+data = ["datasets>=2.18,<3.0", "numpy>=2.0"]
+dev = [
+    "pytest>=7.0,<9.0",
+    "ruff==0.15.2",  # ruff pinned: see .github/workflows/ci.yml
+    "numpy>=2.0",
+    "lm-eval[hf]>=0.4.13,<0.5.0",
+]
 
 [project.scripts]
 cafezin-lm = "cafezin_lm.cli:main"
@@ -41,7 +45,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 src = ["src"]
 
