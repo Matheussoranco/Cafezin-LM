@@ -1,0 +1,159 @@
+{
+  "version": "1.0",
+  "description": "Held-out Brazilian Portuguese generative evaluation prompts. Covers culture, knowledge, reasoning, and writing.",
+  "created": "2026-11-19",
+  "categories": {
+    "culture": "Brazilian cultural knowledge, traditions, regional differences",
+    "knowledge": "Factual knowledge about Brazil (geography, history, politics, economy)",
+    "reasoning": "Multi-step reasoning in Portuguese context",
+    "writing": "Creative and functional writing in Brazilian Portuguese"
+  },
+  "prompts": [
+    {
+      "id": "culture_001",
+      "category": "culture",
+      "prompt": "Explique a diferença entre o Carnaval do Rio de Janeiro e o Carnaval de Salvador, incluindo aspectos musicais, de participação popular e organização.",
+      "reference_points": [
+        "Rio: desfile de escolas de samba no Sambódromo, samba-enredo, competitivo, arquibancadas pagas",
+        "Salvador: trio elétrico, axé music, participação gratuita nas ruas, blocos afro e afoxé",
+        "Rio: mais espectatorial; Salvador: mais participativo"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "culture_002",
+      "category": "culture",
+      "prompt": "Descreva o conceito de 'jeitinho brasileiro' e discuta se é uma característica cultural positiva, negativa ou ambígua, com exemplos concretos.",
+      "reference_points": [
+        "Definição: habilidade de contornar regras burocráticas de forma informal",
+        "Positivo: criatividade, resiliência, solução prática",
+        "Negativo: corrupção, desigualdade, impunidade",
+        "Ambíguo: contexto-dependente, reflete desigualdades estruturais"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "culture_003",
+      "category": "culture",
+      "prompt": "Quais são as principais diferenças culturais entre as cinco regiões do Brasil (Norte, Nordeste, Centro-Oeste, Sudeste, Sul)? Cite pelo menos dois aspectos por região.",
+      "reference_points": [
+        "Norte: cultura amazônica, festas do boi-bumbá, culinária com tucupi/jambu, forte presença indígena",
+        "Nordeste: cultura afro-brasileira forte, forró, cordel, festas juninas, culinária com dendê/feijão",
+        "Centro-Oeste: cultura pantaneira, comitivas, peixe na brasa, forte influência do agronegócio",
+        "Sudeste: cosmopolitismo, carnaval de rua (SP/RJ), economia diversificada, imigração europeia/japonesa",
+        "Sul: influência europeia (alemã/italiana/polonesa), churrasco, chimarrão, festas de colonização, clima subtropical"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "knowledge_001",
+      "category": "knowledge",
+      "prompt": "Explique como funciona o sistema político brasileiro: quais são os três poderes, como são eleitos o presidente e os parlamentares, e qual o papel dos partidos.",
+      "reference_points": [
+        "Três poderes: Executivo (presidente), Legislativo (Câmara + Senado), Judiciário (STF + outros)",
+        "Presidente: voto direto, dois turnos se necessário, mandato 4 anos, reeleição 1x",
+        "Deputados federais: voto proporcional por estado; Senadores: voto majoritário por estado (3 por estado)",
+        "Partidos: cláusula de barreira, federações partidárias, tempo de TV, fundo eleitoral"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "knowledge_002",
+      "category": "knowledge",
+      "prompt": "Descreva os principais biomas brasileiros e suas características. Quais estão mais ameaçados e por quê?",
+      "reference_points": [
+        "6 biomas: Amazônia, Cerrado, Mata Atlântica, Caatinga, Pampa, Pantanal",
+        "Amazônia: maior floresta tropical, biodiversidade, ameaçada por desmatamento/garimbo",
+        "Cerrado: savana biodiversa, 'berço das águas', ameaçada por agronegócio (soja/boi)",
+        "Mata Atlântica: mais devastada historicamente (<12% original), fragmentação urbana",
+        "Caatinga: única semiárida, desertificação, uso insustentável",
+        "Pampa: campos nativos, ameaçada por silvicultura/agricultura",
+        "Pantanal: maior planície alagável, queimadas recentes, hidrelétricas"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "knowledge_003",
+      "category": "knowledge",
+      "prompt": "Como funciona o SUS (Sistema Único de Saúde) no Brasil? Quais são seus princípios, conquistas e desafios atuais?",
+      "reference_points": [
+        "Princípios: universalidade, integralidade, equidade, descentralização, participação social",
+        "Conquistas: vacinação em massa, redução mortalidade infantil, transplantes, genéricos, saúde da família",
+        "Desafios: subfinanciamento (EC 95/2016, novo arcabouço), filas, desigualdade regional, judicialização, gestão"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "reasoning_001",
+      "category": "reasoning",
+      "prompt": "Um pequeno comerciante no interior do Nordeste quer expandir seu negócio para vender online para todo o Brasil. Quais são os principais desafios logísticos, tributários e culturais que ele enfrentará? Proponha uma estratégia passo a passo.",
+      "reference_points": [
+        "Logísticos: correios/transportadoras, prazos longos para Norte/Nordeste, custo frete, rastreamento",
+        "Tributários: ICMS interestadual, DIFAL, Simples Nacional limites, notas fiscais eletrônicas, substituição tributária",
+        "Culturais: formas de pagamento (PIX, boleto, parcelamento), confiança, atendimento humanizado, dialetos regionais",
+        "Estratégia: 1) formalizar MEI/ME, 2) escolher plataforma (Mercado Livre, Shopee, própria), 3) negociar frete, 4) configurar tributação, 5) atendimento personalizado, 6) marketing regionalizado"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "reasoning_002",
+      "category": "reasoning",
+      "prompt": "Analise o seguinte cenário: uma prefeitura do interior de Minas Gerais recebe royalties de mineração. Como ela deve priorizar os investimentos em saúde, educação e infraestrutura para maximizar o desenvolvimento sustentável a longo prazo? Justifique com base em evidências de políticas públicas brasileiras.",
+      "reference_points": [
+        "Saúde: atenção básica (ESF), vigilância sanitária, saúde mental, reduz custos futuros",
+        "Educação: creche/pré-escola (maior retorno), ensino fundamental tempo integral, formação docente, IDEB",
+        "Infraestrutura: saneamento (maior impacto saúde), mobilidade urbana, internet, manutenção > obras novas",
+        "Sustentabilidade: fundos soberanos, transparência (Portal da Transparência), conselhos sociais, planejamento plurianual"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "reasoning_003",
+      "category": "reasoning",
+      "prompt": "Uma startup brasileira quer levar um serviço de telemedicina para comunidades ribeirinhas na Amazônia. Quais são os desafios técnicos, regulatórios e socioculturais? Desenhe um plano de implementação em fases.",
+      "reference_points": [
+        "Técnicos: conectividade (satélite/4G limitado), energia (solar/geradores), dispositivos móveis robustos, offline-first",
+        "Regulatórios: CFM/telemedicina (Resolução 2.314/2022), LGPD, consentimento, prescrição eletrônica, responsabilidade civil",
+        "Socioculturais: confiança em tecnologia, língua/alfabetização digital, crenças de saúde tradicionais, logística de medicamentos (barcos)",
+        "Fases: 1) piloto em 1 comunidade com agente de saúde local, 2) validação técnica/clínica, 3) expansão gradual com parcerias municipais/ONGs, 4) sustentabilidade via SUS/parcerias privadas"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "writing_001",
+      "category": "writing",
+      "prompt": "Escreva uma crônica curta (máximo 300 palavras) sobre a experiência de tomar café da manhã em uma padaria típica paulistana, capturando detalhes sensoriais, interações sociais e o ritmo da cidade.",
+      "reference_points": [
+        "Detalhes sensoriais: cheiro de pão na chapa, vapor do café, som da prensa, textura da manteiga",
+        "Interações: 'bom dia' do padeiro, pedido rápido no balcão, jornal compartilhado, conhecidos se cumprimentando",
+        "Ritmo: pressa dos trabalhadores, pausa dos aposentados, motoboys, relógio na parede",
+        "Estilo: primeira pessoa, presente, vocabulário brasileiro (pingado, pão na chapa, media-luz)"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "writing_002",
+      "category": "writing",
+      "prompt": "Redija um e-mail formal em português brasileiro para um cliente reclamando de um atraso na entrega, mantendo a relação comercial, oferecendo solução concreta e demonstrando empatia culturalmente apropriada.",
+      "reference_points": [
+        "Estrutura: saudação formal (Prezado/a), contextualização, pedido de desculpas genuíno, explicação breve (sem culpar terceiros), solução concreta (prazo, desconto, brinde), canal de contato direto, despedida cordial",
+        "Tom: respeitoso, não robotizado, uso de 'gostaríamos', 'pedimos desculpas', 'colocamo-nos à disposição'",
+        "Empatia brasileira: reconhecer transtorno, 'entendemos a urgência', 'conte conosco'"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "writing_003",
+      "category": "writing",
+      "prompt": "Crie uma lenda brasileira original que explique a origem de um fenômeno natural (ex: chuva de verão, neblina da serra, vento nortão), incorporando elementos da mitologia indígena, africana e europeia de forma respeitosa e coesa.",
+      "reference_points": [
+        "Estrutura de lenda: origem, personagens, conflito, transformação, moral/ensino",
+        "Elementos indígenas: entidades da natureza (Curupira, Iara, Caipora), relação simbiótica com mata/rio",
+        "Elementos africanos: orixás, axé, ancestralidade, sincretismo respeitoso",
+        "Elementos europeus: santos, promessas, benzeduras, cronistas",
+        "Coesão: narrativa fluida, não apenas lista de referências, voz narrativa consistente"
+      ],
+      "difficulty": "hard"
+    }
+  ]
+}
