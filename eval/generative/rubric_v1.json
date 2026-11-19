@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "description": "Scoring rubric for Brazilian Portuguese generative evaluation. Used by LLM judge to evaluate model outputs.",
+  "created": "2026-11-19",
+  "judge_model": "gpt-4o or equivalent capable Portuguese judge",
+  "scoring_scale": {
+    "type": "likert_1_to_5",
+    "levels": {
+      "1": "Muito ruim - Não responde à pergunta, português quebrado, informações factualmente incorretas",
+      "2": "Ruim - Resposta parcial, muitos erros de português, fatos incorretos ou omissões graves",
+      "3": "Regular - Resposta básica, alguns erros de português, fatos majoritariamente corretos mas incompletos",
+      "4": "Bom - Resposta completa, português natural, fatos corretos, boa estrutura",
+      "5": "Excelente - Resposta excepcional, português idiomático, fatos precisos, profundidade, nuances culturais"
+    }
+  },
+  "dimensions": {
+    "factual_accuracy": {
+      "name": "Precisão Factual",
+      "weight": 0.30,
+      "description": "Corretude das informações factuais sobre Brasil (dados, história, geografia, leis, instituições)",
+      "criteria": {
+        "5": "Todas as informações factuais corretas e precisas",
+        "4": "Informações majoritariamente corretas, imprecisões menores",
+        "3": "Alguns fatos corretos, mas omissões ou erros significativos",
+        "2": "Muitos erros factuais, informações desatualizadas ou inventadas",
+        "1": "Informações factuais completamente incorretas ou alucinadas"
+      }
+    },
+    "cultural_competence": {
+      "name": "Competência Cultural",
+      "weight": 0.25,
+      "description": "Demonstração de entendimento nuancado da cultura brasileira, regionalismos, contextos sociais",
+      "criteria": {
+        "5": "Profundo entendimento cultural, nuances regionais, referências idiomáticas naturais",
+        "4": "Bom entendimento cultural, alguma nuance, vocabulário brasileiro apropriado",
+        "3": "Entendimento cultural básico, superficial, alguns regionalismos",
+        "2": "Visão estereotipada ou estrangeirada da cultura brasileira",
+        "1": "Completa falta de competência cultural, erros graves de contexto"
+      }
+    },
+    "language_quality": {
+      "name": "Qualidade do Português",
+      "weight": 0.20,
+      "description": "Gramática, sintaxe, vocabulário, fluidez, registro apropriado (formal/informal conforme contexto)",
+      "criteria": {
+        "5": "Português impecável, idiomático, registro perfeito para o contexto",
+        "4": "Português natural, pequenos deslizes, registro apropriado",
+        "3": "Português compreensível, erros gramaticais leves, registro inconsistente",
+        "2": "Português com erros frequentes, vocabulário limitado, registro inadequado",
+        "1": "Português quebrado, incompreensível, gramática severamente comprometida"
+      }
+    },
+    "reasoning_depth": {
+      "name": "Profundidade do Raciocínio",
+      "weight": 0.15,
+      "description": "Qualidade da análise, argumentação, conexão de ideias, proposta de soluções estruturadas",
+      "criteria": {
+        "5": "Raciocínio sofisticado, múltiplas perspectivas, estrutura lógica impecável",
+        "4": "Raciocínio sólido, boa estrutura, algumas perspectivas consideradas",
+        "3": "Raciocínio linear, básico, pouca profundidade analítica",
+        "2": "Raciocínio fragmentado, falhas lógicas, conclusões não fundamentadas",
+        "1": "Ausência de raciocínio, resposta desconexa ou circular"
+      }
+    },
+    "completeness": {
+      "name": "Completude",
+      "weight": 0.10,
+      "description": "Se a resposta aborda todos os aspectos solicitados no prompt",
+      "criteria": {
+        "5": "Aborda todos os aspectos solicitados com profundidade equilibrada",
+        "4": "Aborda todos os aspectos, alguns com menos detalhe",
+        "3": "Aborda a maioria dos aspectos, omissões notáveis",
+        "2": "Aborda poucos aspectos, foco estreito",
+        "1": "Não aborda o que foi solicitado"
+      }
+    }
+  },
+  "calibration_examples": {
+    "culture_001": {
+      "score_5_example": "Resposta que distingue claramente: Rio = escolas de samba/Sambódromo/samba-enredo/competição/ingressos; Salvador = trio elétrico/axé/ruas gratuitas/blocos afro/afoxé. Menciona que Rio é mais espectatorial, Salvador mais participativo. Usa termos como 'pipoca', 'camarote', 'circuito'.",
+      "score_3_example": "Resposta que menciona desfile no Rio e trio elétrico em Salvador, mas confunde samba-enredo com axé, não menciona gratuidade em Salvador, não distingue participação vs espectatorial.",
+      "score_1_example": "Resposta que diz que ambos são iguais, ou confunde com Carnaval de Recife/Olinda, ou fala de Carnaval europeu."
+    },
+    "knowledge_001": {
+      "score_5_example": "Explica corretamente: 3 poderes, presidente voto direto 2 turnos 4 anos, deputados proporcional, senadores majoritário 3/estado, partidos com cláusula de barreira/federações/fundo eleitoral/tempo TV.",
+      "score_3_example": "Acerta poderes e eleição presidente, mas confunde eleição de deputados/senadores, não menciona cláusula de barreira ou federações.",
+      "score_1_example": "Diz que presidente é eleito pelo Congresso, ou que não há Senado, ou confunde com sistema parlamentarista."
+    },
+    "writing_001": {
+      "score_5_example": "Crônica em 1ª pessoa, presente, vocabulário paulistano autêntico (pingado, media-luz, pão na chapa), detalhes sensoriais vívidos, ritmo da cidade capturado, ~250 palavras.",
+      "score_3_example": "Crônica em 3ª pessoa ou passado, vocabulário genérico (café com leite, pão com manteiga), poucos detalhes sensoriais, ritmo genérico.",
+      "score_1_example": "Texto em inglês, ou português de Portugal, ou não é crônica, ou >500 palavras sem foco."
+    }
+  },
+  "aggregation": {
+    "method": "weighted_average",
+    "formula": "final_score = sum(dimension_score * dimension_weight) for all dimensions",
+    "output_scale": "1.0 to 5.0 (continuous)",
+    "rounding": "2 decimal places"
+  },
+  "judge_protocol": {
+    "system_prompt": "Você é um avaliador especialista em português brasileiro. Sua tarefa é avaliar respostas de modelos de linguagem a prompts sobre cultura, conhecimento, raciocínio e escrita no contexto brasileiro. Use a rubrica fornecida para atribuir notas de 1 a 5 em cada dimensão. Seja rigoroso mas justo. Considere o contexto cultural brasileiro como nativo. Não penalize por estilo se o conteúdo estiver correto. Forneça sua avaliação em formato JSON estruturado.",
+    "user_prompt_template": "PROMPT ORIGINAL:\n{prompt}\n\nRESPOSTA DO MODELO:\n{response}\n\nRUBRICA DE AVALIAÇÃO:\n{rubric_summary}\n\nAvalie a resposta em cada dimensão (1-5) e forneça:\n1. Nota por dimensão\n2. Justificativa breve por dimensão (1-2 frases)\n3. Nota final ponderada\n\nResponda APENAS em JSON válido com a estrutura:\n{{\n  \"scores\": {{\n    \"factual_accuracy\": <int>,\n    \"cultural_competence\": <int>,\n    \"language_quality\": <int>,\n    \"reasoning_depth\": <int>,\n    \"completeness\": <int>\n  }},\n  \"justifications\": {{\n    \"factual_accuracy\": \"...\",\n    \"cultural_competence\": \"...\",\n    \"language_quality\": \"...\",\n    \"reasoning_depth\": \"...\",\n    \"completeness\": \"...\"\n  }},\n  \"final_score\": <float>\n}}",
+    "temperature": 0.0,
+    "max_tokens": 1024,
+    "retry_on_parse_error": 3
+  }
+}
