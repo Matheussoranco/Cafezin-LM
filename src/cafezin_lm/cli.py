@@ -36,6 +36,7 @@ from .checkpoint import (
     spec_digest,
     verify_offline,
 )
+from .model_card import load_evaluation_results, render_model_card
 from .config import (
     PRESET_NAMES,
     REFERENCE_REPO,
@@ -387,6 +388,27 @@ def cmd_smoke_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_model_card(args: argparse.Namespace) -> int:
+    """Render model card from evaluation results."""
+    data = load_evaluation_results(
+        run_eval_output_dir=args.run_eval_dir,
+        generative_output_dir=args.generative_dir,
+        vision_norm_output_dir=args.vision_norm_dir,
+        continued_pretrain_run_settings=args.run_settings,
+        tokenizer_extension_output=args.tokenizer_extension,
+        data_provenance_file=args.data_provenance,
+    )
+    data.model_name = args.model_name
+    data.model_version = args.model_version
+    
+    card = render_model_card(data)
+    
+    output_path = Path(args.output)
+    output_path.write_text(card, encoding="utf-8")
+    print(f"Model card written to {output_path}")
+    return 0
+
+
 def cmd_tokenizer_extend(args: argparse.Namespace) -> int:
     # Load base tokenizer
     base_tok = Tokenizer(args.tokenizer)
@@ -622,7 +644,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # continue-pretrain
     p = sub.add_parser(
-        "continue-pretrain", help="continued pretraining from S5-nano (MS-001)"
+    "continue-pretrain", help="continued pretraining from S5-nano (MS-001)"
     )
     p.add_argument("--config", help="JSON config file with 'continued_pretrain' section")
     p.add_argument("--source-repo", default=REFERENCE_REPO, help="HF repo for S5-nano checkpoint")
@@ -633,7 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out-dir", default="out-continued", help="output directory for checkpoints")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument(
-        "--seq-len", type=int, default=2048, help="sequence length (2048 baseline, 4096 stretch)"
+    "--seq-len", type=int, default=2048, help="sequence length (2048 baseline, 4096 stretch)"
     )
     p.add_argument("--batch-size", type=int, default=1, help="microbatch size")
     p.add_argument("--grad-accum", type=int, default=32, help="gradient accumulation steps")
@@ -649,7 +671,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--gradient-checkpointing", action="store_true", default=True)
     p.add_argument(
-        "--no-gradient-checkpointing", dest="gradient_checkpointing", action="store_false"
+    "--no-gradient-checkpointing", dest="gradient_checkpointing", action="store_false"
     )
     p.add_argument("--mtp-weight", type=float, default=0.3)
     p.add_argument("--compile", action="store_true")
@@ -658,10 +680,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-last", type=int, default=3)
     p.add_argument("--device", default="cuda")
     p.add_argument(
-        "--dtype",
-        choices=["float32", "bfloat16", "float16"],
-        default="bfloat16",
-        help="training precision",
+    "--dtype",
+    choices=["float32", "bfloat16", "float16"],
+    default="bfloat16",
+    help="training precision",
     )
     p.add_argument("--torch-seed", type=int)
     p.add_argument("--resume", help="resume from checkpoint directory")
@@ -685,6 +707,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prompt", default="Olá, mundo!")
     p.add_argument("--max-new", type=int, default=32)
     p.set_defaults(func=cmd_smoke_test)
+
+    # model-card
+    p = sub.add_parser("model-card", help="render model card from evaluation results")
+    p.add_argument("--run-eval-dir", required=True, help="Output directory from run_eval.py")
+    p.add_argument("--generative-dir", help="Output directory from eval_generative_br.py")
+    p.add_argument("--vision-norm-dir", help="Output directory from test_vision_norm.py")
+    p.add_argument("--run-settings", help="Path to run_settings.json from continued_pretrain")
+    p.add_argument("--tokenizer-extension", help="Path to tokenizer extension results JSON")
+    p.add_argument("--data-provenance", help="Path to data provenance JSON")
+    p.add_argument("--model-name", default="cafezin-lm-br", help="Model name for card")
+    p.add_argument("--model-version", default="0.1.0", help="Model version")
+    p.add_argument("--output", default="MODEL_CARD.md", help="Output model card path")
+    p.set_defaults(func=cmd_model_card)
 
     return parser
 
