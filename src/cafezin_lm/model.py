@@ -766,10 +766,12 @@ class VisionPatchMerger(nn.Module):
         self.norm = LayerNorm(cfg.hidden_size, eps=1e-6, zero_centered=cfg.zero_centered_norm)
         self.linear_fc1 = nn.Linear(self.hidden_size, self.hidden_size)
         self.linear_fc2 = nn.Linear(self.hidden_size, cfg.out_hidden_size)
+        # Use exact GELU (approximate='none') to match HF Qwen3.5-VL merger
+        self.act_fn = nn.GELU(approximate="none")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(x.reshape(-1, self.norm.weight.numel())).reshape(-1, self.hidden_size)
-        return self.linear_fc2(F.gelu(self.linear_fc1(x)))
+        return self.linear_fc2(self.act_fn(self.linear_fc1(x)))
 
 
 def apply_rotary_pos_emb_vision(
