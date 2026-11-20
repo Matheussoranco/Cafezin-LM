@@ -22,10 +22,7 @@ REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from cafezin_lm.tokenizer import Tokenizer
-from cafezin_lm.tokenizer_extension import extend_tokenizer, mine_candidate_tokens
-
-from data_curation import (
+from data_curation import (  # noqa: E402
     CorpusProvenance,
     CurriculumSchedule,
     assemble_portuguese_corpus,
@@ -35,6 +32,12 @@ from data_curation import (
     prepare_curriculum_data,
     record_token_counts,
     split_train_eval,
+)
+
+from cafezin_lm.tokenizer import Tokenizer  # noqa: E402
+from cafezin_lm.tokenizer_extension import (  # noqa: E402
+    extend_tokenizer,
+    mine_candidate_tokens,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

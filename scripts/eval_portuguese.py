@@ -162,13 +162,13 @@ def compute_bits_per_utf8_byte(
         "--output_path", str(output_dir / "perplexity"),
     ]
 
-    result = run_evaluation(cmd)
+    _ = run_evaluation(cmd)
 
     # Parse results for perplexity and compute bits/byte
     results_file = output_dir / "perplexity" / "results.json"
     if results_file.exists():
         with open(results_file) as f:
-            results = json.load(f)
+            _ = json.load(f)
 
         # Extract perplexity from results
         # The metric is typically "word_perplexity" or "byte_perplexity"
@@ -249,7 +249,7 @@ def main() -> int:
         model_args=model_args,
     )
 
-    result = run_evaluation(cmd)
+    _ = run_evaluation(cmd)
 
     if result.returncode != 0:
         print(f"Evaluation failed with return code {result.returncode}")

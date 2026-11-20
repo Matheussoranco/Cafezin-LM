@@ -7,8 +7,8 @@ training configuration, and provenance metadata.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -110,7 +110,7 @@ class ModelCardData:
     """Complete data for model card rendering."""
     model_name: str = "cafezin-lm-br"
     model_version: str = "0.1.0"
-    date: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    date: str = field(default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%d"))
     parent: ParentCheckpoint = field(default_factory=ParentCheckpoint)
     data_provenance: DataProvenance = field(default_factory=DataProvenance)
     tokenizer_changes: TokenizerChanges = field(default_factory=TokenizerChanges)
@@ -156,9 +156,9 @@ model-index:
 
 # Cafezin LM BR: Brazilian Portuguese Specialized Multimodal Model
 
-**Model ID:** `cafezin-lm/cafezin-lm-br`  
-**Version:** {{ model_version }}  
-**Release Date:** {{ date }}  
+**Model ID:** `cafezin-lm/cafezin-lm-br`
+**Version:** {{ model_version }}
+**Release Date:** {{ date }}
 **Parent Model:** [`{{ parent.repo }}`](https://huggingface.co/{{ parent.repo }}) @ `{{ parent.revision }}`
 
 ## Model Summary
@@ -349,8 +349,8 @@ MT-Bench / LLM-judge style evaluation on 12 held-out prompts across 4 categories
 *No difficulty breakdown available.*
 {% endif %}
 
-**Prompts Version:** {{ evaluation.generative.metadata.prompts_version if evaluation.generative.get('metadata') else "v1" }}  
-**Rubric Version:** {{ evaluation.generative.metadata.rubric_version if evaluation.generative.get('metadata') else "v1" }}  
+**Prompts Version:** {{ evaluation.generative.metadata.prompts_version if evaluation.generative.get('metadata') else "v1" }}
+**Rubric Version:** {{ evaluation.generative.metadata.rubric_version if evaluation.generative.get('metadata') else "v1" }}
 **Dimensions:** Factual Accuracy (30%), Cultural Competence (25%), Language Quality (20%), Reasoning Depth (15%), Completeness (10%)
 
 ### Vision Normalization Comparison
@@ -454,7 +454,7 @@ def render_model_card(data: ModelCardData) -> str:
     """Render model card from data using Jinja2-style template."""
     # Simple template rendering without Jinja2 dependency
     template = MODEL_CARD_TEMPLATE
-    
+
     # Build context dict
     ctx = {
         "model_version": data.model_version,
@@ -466,10 +466,10 @@ def render_model_card(data: ModelCardData) -> str:
         "evaluation": data.evaluation,
         "limitations": data.limitations,
     }
-    
+
     # Simple variable substitution for basic fields
     import re
-    
+
     def replace_var(match):
         var_path = match.group(1).strip()
         try:
@@ -499,14 +499,14 @@ def render_model_card(data: ModelCardData) -> str:
             return str(val)
         except (AttributeError, KeyError, IndexError, TypeError):
             return f"{{{{{var_path}}}}}"
-    
+
     # Replace {{ var }} patterns (but not {var:format} format specifiers)
     # Use a more precise pattern that doesn't match format specifiers
     template = re.sub(r"\{\{\s*([^}]+?)\s*\}\}", replace_var, template)
-    
+
     # Handle conditionals {% if ... %} ... {% endif %} - simple approach
     # This is a minimal implementation; for production use Jinja2
-    
+
     return template
 
 
@@ -521,12 +521,12 @@ def load_evaluation_results(
     """Load all evaluation results and build ModelCardData."""
     run_eval_dir = Path(run_eval_output_dir)
     data = ModelCardData()
-    
+
     # Load run settings from continued pretraining
     if continued_pretrain_run_settings and Path(continued_pretrain_run_settings).exists():
         with open(continued_pretrain_run_settings) as f:
             run_settings = json.load(f)
-        
+
         cp_cfg = run_settings.get("continued_pretrain_config", {})
         data.training = TrainingSettings(
             seed=cp_cfg.get("seed", 42),
@@ -554,22 +554,22 @@ def load_evaluation_results(
         )
         data.candidate_checkpoint_path = run_settings.get("final_checkpoint", "")
         data.run_settings_path = str(continued_pretrain_run_settings)
-    
+
     # Load evaluation summary
     eval_summary_path = run_eval_dir / "evaluation_summary.json"
     if eval_summary_path.exists():
         with open(eval_summary_path) as f:
-            eval_summary = json.load(f)
-    
+            _ = json.load(f)
+
     # Load comparison report
     comparison_dir = run_eval_dir / "comparison"
-    comparison_report_path = comparison_dir / "comparison_report.md"
+    _ = comparison_dir / "comparison_report.md"
     comparison_json_path = comparison_dir / "comparison.json"
-    
+
     if comparison_json_path.exists():
         with open(comparison_json_path) as f:
             comparison = json.load(f)
-        
+
         # Extract bits per byte
         if "perplexity" in comparison:
             perp = comparison["perplexity"]
@@ -579,7 +579,7 @@ def load_evaluation_results(
                 data.evaluation.bits_per_byte_diff = (
                     data.evaluation.candidate_bits_per_byte - data.evaluation.baseline_bits_per_byte
                 )
-        
+
         # Extract downstream task results
         if "tasks" in comparison:
             for task_name, task_data in comparison["tasks"].items():
@@ -600,7 +600,7 @@ def load_evaluation_results(
                         "baseline": baseline.get("accuracy", baseline.get("score", 0)),
                         "candidate": candidate.get("accuracy", candidate.get("score", 0)),
                     }
-    
+
     # Load generative evaluation
     if generative_output_dir and Path(generative_output_dir).exists():
         gen_results_path = Path(generative_output_dir) / "generative_eval_results.json"
@@ -608,7 +608,7 @@ def load_evaluation_results(
             with open(gen_results_path) as f:
                 gen_data = json.load(f)
             data.evaluation.generative = gen_data
-    
+
     # Load vision norm test results
     if vision_norm_output_dir and Path(vision_norm_output_dir).exists():
         vision_meta_path = Path(vision_norm_output_dir) / "metadata.json"
@@ -616,7 +616,7 @@ def load_evaluation_results(
             with open(vision_meta_path) as f:
                 vision_data = json.load(f)
             data.evaluation.vision_norm = vision_data
-    
+
     # Load tokenizer extension info
     if tokenizer_extension_output and Path(tokenizer_extension_output).exists():
         with open(tokenizer_extension_output) as f:
@@ -634,7 +634,7 @@ def load_evaluation_results(
             new_tokens_sample=tok_data.get("new_tokens_sample", []),
         )
         data.extended_tokenizer_path = tokenizer_extension_output
-    
+
     # Load data provenance
     if data_provenance_file and Path(data_provenance_file).exists():
         with open(data_provenance_file) as f:
@@ -647,7 +647,7 @@ def load_evaluation_results(
             tokenized_with=prov_data.get("tokenized_with", ""),
             decontamination=prov_data.get("decontamination", "Not performed"),
         )
-    
+
     # Set default limitations if not loaded
     if not data.limitations.items:
         data.limitations.items = [
@@ -662,15 +662,14 @@ def load_evaluation_results(
             "Tokenizer extension based on frequency mining; may miss rare but semantically important tokens.",
             "Evaluation sample sizes limited (12 generative prompts, lm-eval default splits); confidence intervals not computed.",
         ]
-    
+
     return data
 
 
 def main() -> int:
     """CLI entry point for model card rendering."""
     import argparse
-    import sys
-    
+
     parser = argparse.ArgumentParser(description="Render Cafezin LM model card")
     parser.add_argument("--run-eval-dir", required=True, help="Output directory from scripts/run_eval.py")
     parser.add_argument("--generative-dir", help="Output directory from scripts/eval_generative_br.py")
@@ -681,9 +680,9 @@ def main() -> int:
     parser.add_argument("--model-name", default="cafezin-lm-br", help="Model name for card")
     parser.add_argument("--model-version", default="0.1.0", help="Model version")
     parser.add_argument("--output", default="MODEL_CARD.md", help="Output model card path")
-    
+
     args = parser.parse_args()
-    
+
     data = load_evaluation_results(
         run_eval_output_dir=args.run_eval_dir,
         generative_output_dir=args.generative_dir,
@@ -694,13 +693,13 @@ def main() -> int:
     )
     data.model_name = args.model_name
     data.model_version = args.model_version
-    
+
     card = render_model_card(data)
-    
+
     output_path = Path(args.output)
     output_path.write_text(card, encoding="utf-8")
     print(f"Model card written to {output_path}")
-    
+
     return 0
 
 

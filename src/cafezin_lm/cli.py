@@ -36,7 +36,6 @@ from .checkpoint import (
     spec_digest,
     verify_offline,
 )
-from .model_card import load_evaluation_results, render_model_card
 from .config import (
     PRESET_NAMES,
     REFERENCE_REPO,
@@ -61,6 +60,7 @@ from .model import (
     parameter_count_breakdown,
     parameter_count_estimate_full,
 )
+from .model_card import load_evaluation_results, render_model_card
 from .safetensors_io import nbytes_of
 from .tokenizer import Tokenizer
 from .tokenizer_extension import (
@@ -400,9 +400,9 @@ def cmd_model_card(args: argparse.Namespace) -> int:
     )
     data.model_name = args.model_name
     data.model_version = args.model_version
-    
+
     card = render_model_card(data)
-    
+
     output_path = Path(args.output)
     output_path.write_text(card, encoding="utf-8")
     print(f"Model card written to {output_path}")

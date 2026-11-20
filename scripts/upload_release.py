@@ -282,8 +282,8 @@ def upload_to_hf(
 
     try:
         from huggingface_hub import HfApi, create_repo
-    except ImportError:
-        raise RuntimeError("huggingface_hub not installed. Install with: pip install huggingface_hub")
+    except ImportError as e:
+        raise RuntimeError("huggingface_hub not installed. Install with: pip install huggingface_hub") from e
 
     api = HfApi(token=token)
 
@@ -364,8 +364,8 @@ def verify_upload(repo_id: str, revision: str, token: str | None) -> dict[str, A
 
     try:
         from huggingface_hub import HfApi
-    except ImportError:
-        raise RuntimeError("huggingface_hub not installed")
+    except ImportError as e:
+        raise RuntimeError("huggingface_hub not installed") from e
 
     api = HfApi(token=token)
 

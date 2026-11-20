@@ -232,7 +232,7 @@ def call_llm_judge(
     # In production, this would call an API (OpenAI, Anthropic, etc.)
     # For now, we'll use a local judge or simulate
     
-    judge_prompt = f"{system_prompt}\n\n{user_prompt}"
+    _ = f"{system_prompt}\n\n{user_prompt}"
     
     # Try to use a local model or API
     # For this implementation, we'll create a fallback heuristic judge

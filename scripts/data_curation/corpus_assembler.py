@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def _utcnow_iso() -> str:
     """Return current UTC time as ISO format string with Z suffix."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(frozen=True)
@@ -252,7 +252,7 @@ def assemble_portuguese_corpus(
     sources: list[CorpusSource] | None = None,
     provenance: CorpusProvenance | None = None,
     streaming: bool = True,
-) -> tuple["Iterator[str]", CorpusProvenance]:
+) -> tuple[Iterator[str], CorpusProvenance]:
     """Assemble Portuguese corpus from multiple sources.
 
     Args:
@@ -274,7 +274,7 @@ def assemble_portuguese_corpus(
     for source in sources:
         provenance.add_source(source)
 
-    def document_iterator() -> "Iterator[str]":
+    def document_iterator() -> Iterator[str]:
         total_docs = 0
         for source in sources:
             logger.info(f"Loading source: {source.name} ({source.hf_dataset_id})")
@@ -315,9 +315,8 @@ def assemble_portuguese_corpus(
                             continue
 
                     # Apply Brazilian Portuguese criteria
-                    if source.br_pt_criteria:
-                        if not _matches_br_pt_criteria(row, source.br_pt_criteria):
-                            continue
+                    if source.br_pt_criteria and not _matches_br_pt_criteria(row, source.br_pt_criteria):
+                        continue
 
                     yield text
                     count += 1
@@ -338,9 +337,8 @@ def assemble_portuguese_corpus(
 def _matches_br_pt_criteria(row: dict, criteria: dict) -> bool:
     """Check if a row matches Brazilian Portuguese selection criteria."""
     # Country code check (for Common Crawl)
-    if "country_code" in criteria:
-        if row.get("country_code", "").upper() != criteria["country_code"].upper():
-            return False
+    if "country_code" in criteria and row.get("country_code", "").upper() != criteria["country_code"].upper():
+        return False
 
     # Language score threshold
     if "language_score_threshold" in criteria:
@@ -349,9 +347,8 @@ def _matches_br_pt_criteria(row: dict, criteria: dict) -> bool:
             return False
 
     # Content type
-    if "content_type" in criteria:
-        if row.get("content_type", "") != criteria["content_type"]:
-            return False
+    if "content_type" in criteria and row.get("content_type", "") != criteria["content_type"]:
+        return False
 
     # Wikipedia variant
     if criteria.get("include_br_variant"):
@@ -362,7 +359,7 @@ def _matches_br_pt_criteria(row: dict, criteria: dict) -> bool:
 
 
 def filter_and_deduplicate(
-    documents: "Iterator[str]",
+    documents: Iterator[str],
     provenance: CorpusProvenance,
     min_doc_chars: int = 100,
     max_doc_chars: int = 1_000_000,

@@ -5,12 +5,13 @@ Implements the 50/50 -> 90/10 PT/multilingual curriculum by token count.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from enum import Enum
-from typing import Iterator, Literal
+from enum import StrEnum
+from typing import Literal
 
 
-class CurriculumStage(str, Enum):
+class CurriculumStage(StrEnum):
     """Stages of the curriculum."""
 
     INITIAL = "initial"  # 50/50 PT/multilingual
@@ -192,8 +193,8 @@ def apply_curriculum(
     multi_tokens_used = 0
 
     # Sort by token count descending to use larger docs first
-    pt_sorted = sorted(zip(pt_documents, pt_token_counts), key=lambda x: -x[1])
-    multi_sorted = sorted(zip(multilingual_documents, multi_token_counts), key=lambda x: -x[1])
+    pt_sorted = sorted(zip(pt_documents, pt_token_counts, strict=False), key=lambda x: -x[1])
+    multi_sorted = sorted(zip(multilingual_documents, multi_token_counts, strict=False), key=lambda x: -x[1])
 
     for doc, count in pt_sorted:
         if pt_tokens_used + count <= target_pt_tokens:

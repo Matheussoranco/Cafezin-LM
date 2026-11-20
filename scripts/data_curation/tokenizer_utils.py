@@ -154,7 +154,7 @@ def record_token_counts(
     multi_report.pt_ratio = 0.0
 
     # Combined report
-    combined_tokenized = pt_tokenized + multi_tokenized
+    _ = pt_tokenized + multi_tokenized
     total_tokens = pt_report.total_tokens + multi_report.total_tokens
     total_chars = pt_report.total_chars + multi_report.total_chars
     total_docs = pt_report.num_documents + multi_report.num_documents

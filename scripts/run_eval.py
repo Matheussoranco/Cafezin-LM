@@ -24,7 +24,7 @@ from pathlib import Path
 
 def run_script(script: str, args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Run a Python script with arguments."""
-    cmd = [sys.executable, script] + args
+    cmd = [sys.executable, script, *args]
     print(f"Running: {' '.join(cmd)}")
     return subprocess.run(cmd, cwd=cwd, capture_output=False, text=True)
 

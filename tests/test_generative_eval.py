@@ -119,7 +119,7 @@ class TestGenerativeEvaluation:
         ]
         
         results = []
-        for i, p in enumerate(prompts):
+        for _i, p in enumerate(prompts):
             # Baseline scores
             b_score = JudgeScore(
                 model_name="baseline", prompt_id=p.id,

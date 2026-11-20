@@ -1,0 +1,7 @@
+{
+  "repo_id": "cafezin-lm/cafezin-lm-br",
+  "revision": "dry-run-revision",
+  "checkpoint_dir": "out\\cafezin-smoke-export",
+  "model_card": "test_model_card.md",
+  "uploaded_files": 15
+}

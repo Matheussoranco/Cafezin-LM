@@ -1,0 +1,52 @@
+[
+  {
+    "goal": "STANDARDS REVIEW: Review the diff between d3a51e6 and HEAD for coding standards compliance. Fixed point: d3a51e6 (Add Model Tensor Specification). Diff command: git diff d3a51e6...HEAD. Standards sources: pyproject.toml ruff config (target-version=py312, line-length=100, select=[E,F,W,I,UP,B,SIM,RUF], ignore=[RUF001,RUF002,RUF003,RUF012], per-file-ignores tests/*=S101). Also apply the Fowler smell baseline from the code-review skill: Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Repeated Switches, Shotgun Surgery, Divergent Change, Speculative Generality, Message Chains, Middle Man, Refused Bequest. Report per file/hunk: (a) violations of documented standards (cite pyproject.toml rule), (b) baseline smells (name and quote hunk). Distinguish hard violations from judgement calls. Skip anything tooling enforces. Under 400 words.",
+    "context": "Repo: C:/Users/mathe/Documents/Code/cafezin-lm. Diff saved to /tmp/cafezin_diff.patch (15691 lines). Fixed point: d3a51e6. Standards: pyproject.toml ruff config + Fowler smell baseline from code-review skill.",
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {"type": "string"},
+              "type": {"type": "string", "enum": ["standard_violation", "smell"]},
+              "rule_or_smell": {"type": "string"},
+              "location": {"type": "string"},
+              "quote": {"type": "string"},
+              "severity": {"type": "string", "enum": ["hard", "judgement_call"]},
+              "description": {"type": "string"}
+            },
+            "required": ["file", "type", "rule_or_smell", "location", "quote", "severity", "description"]
+          }
+        }
+      },
+      "required": ["findings"]
+    }
+  },
+  {
+    "goal": "SPEC REVIEW: Review the diff between d3a51e6 and HEAD against the SPEC.md requirements. Fixed point: d3a51e6. Spec: SPEC.md (Problem Statement, Solution, Stories US-001/002/003, DS-001/002, MS-001, AS-001/002/003, Implementation Decisions 1-7, Testing Decisions, Out of Scope). Diff command: git diff d3a51e6...HEAD. Report: (a) requirements from spec missing or partial, (b) behavior in diff not asked for (scope creep), (c) requirements implemented but implementation looks wrong. Quote spec line for each. Check against Testing Decisions seams. No BS scenarios in spec. Under 400 words.",
+    "context": "Repo: C:/Users/mathe/Documents/Code/cafezin-lm. Diff saved to /tmp/cafezin_diff.patch (15691 lines). Fixed point: d3a51e6. Spec: SPEC.md in repo root.",
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": {"type": "string", "enum": ["missing", "scope_creep", "wrong_implementation"]},
+              "spec_line": {"type": "string"},
+              "diff_location": {"type": "string"},
+              "quote": {"type": "string"},
+              "description": {"type": "string"}
+            },
+            "required": ["category", "spec_line", "diff_location", "quote", "description"]
+          }
+        }
+      },
+      "required": ["findings"]
+    }
+  }
+]

@@ -4,24 +4,20 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
-from cafezin_lm.tokenizer import Tokenizer
-from cafezin_lm.tokenizer_extension import extend_tokenizer, mine_candidate_tokens
-
 from scripts.data_curation import (
     CorpusProvenance,
     CorpusSource,
     CurriculumSchedule,
     CurriculumStage,
-    assemble_portuguese_corpus,
-    default_portuguese_sources,
     filter_and_deduplicate,
-    multilingual_sources,
     prepare_curriculum_data,
     record_token_counts,
     split_train_eval,
     tokenize_corpus,
 )
+
+from cafezin_lm.tokenizer import Tokenizer
+from cafezin_lm.tokenizer_extension import extend_tokenizer, mine_candidate_tokens
 
 
 def create_test_tokenizer(tmp_path: Path) -> Tokenizer:

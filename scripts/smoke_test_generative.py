@@ -115,7 +115,7 @@ def run_smoke_test() -> bool:
         )
         
         try:
-            results = run_generative_evaluation(
+            _ = run_generative_evaluation(
                 baseline_model_path=str(baseline_path),
                 candidate_model_path=str(candidate_path),
                 tokenizer_path=str(tokenizer_path),
