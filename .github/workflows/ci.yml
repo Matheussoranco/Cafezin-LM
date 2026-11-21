@@ -38,7 +38,7 @@ jobs:
         run: ruff format --check src/ tests/
 
   test:
-    name: Test Suite (Python ${{ matrix.python-version }})
+    name: Test Suite (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -65,4 +65,4 @@ jobs:
 
       # Include end-to-end training on both supported operating systems.
       - name: Run tests
-        run: pytest -m "not gpu and not slow" --tb=short -q
+        run: python -m pytest -m "not gpu and not slow" --tb=short -q
