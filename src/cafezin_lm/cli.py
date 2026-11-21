@@ -490,6 +490,7 @@ def cmd_tokenizer_extend(args: argparse.Namespace) -> int:
 
         # Export extended checkpoint
         from .checkpoint import save_hf_checkpoint
+
         assets = {"tokenizer.json": extended_tok.path.read_bytes()}
         manifest = save_hf_checkpoint(
             model=model,
@@ -622,8 +623,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out-checkpoint", help="output directory for extended checkpoint (optional)")
     p.add_argument(
         "--checkpoint",
-        help="checkpoint directory to grow embeddings for "
-        "(required with --out-checkpoint)",
+        help="checkpoint directory to grow embeddings for (required with --out-checkpoint)",
     )
     p.add_argument(
         "--min-frequency", type=int, default=10, help="minimum frequency for candidate tokens"
@@ -643,9 +643,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_tokenizer_stats)
 
     # continue-pretrain
-    p = sub.add_parser(
-    "continue-pretrain", help="continued pretraining from S5-nano (MS-001)"
-    )
+    p = sub.add_parser("continue-pretrain", help="continued pretraining from S5-nano (MS-001)")
     p.add_argument("--config", help="JSON config file with 'continued_pretrain' section")
     p.add_argument("--source-repo", default=REFERENCE_REPO, help="HF repo for S5-nano checkpoint")
     p.add_argument("--source-revision", default=REFERENCE_REVISION, help="HF revision for S5-nano")
@@ -655,7 +653,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out-dir", default="out-continued", help="output directory for checkpoints")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument(
-    "--seq-len", type=int, default=2048, help="sequence length (2048 baseline, 4096 stretch)"
+        "--seq-len", type=int, default=2048, help="sequence length (2048 baseline, 4096 stretch)"
     )
     p.add_argument("--batch-size", type=int, default=1, help="microbatch size")
     p.add_argument("--grad-accum", type=int, default=32, help="gradient accumulation steps")
@@ -671,7 +669,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--gradient-checkpointing", action="store_true", default=True)
     p.add_argument(
-    "--no-gradient-checkpointing", dest="gradient_checkpointing", action="store_false"
+        "--no-gradient-checkpointing", dest="gradient_checkpointing", action="store_false"
     )
     p.add_argument("--mtp-weight", type=float, default=0.3)
     p.add_argument("--compile", action="store_true")
@@ -680,10 +678,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-last", type=int, default=3)
     p.add_argument("--device", default="cuda")
     p.add_argument(
-    "--dtype",
-    choices=["float32", "bfloat16", "float16"],
-    default="bfloat16",
-    help="training precision",
+        "--dtype",
+        choices=["float32", "bfloat16", "float16"],
+        default="bfloat16",
+        help="training precision",
     )
     p.add_argument("--torch-seed", type=int)
     p.add_argument("--resume", help="resume from checkpoint directory")

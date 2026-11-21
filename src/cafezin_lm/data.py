@@ -26,11 +26,15 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     np = None  # type: ignore[assignment]
 
-TOKEN_DTYPES = {
-    "uint32": np.uint32,
-    "uint16": np.uint16,
-    "uint64": np.uint64,
-} if np is not None else {}
+TOKEN_DTYPES = (
+    {
+        "uint32": np.uint32,
+        "uint16": np.uint16,
+        "uint64": np.uint64,
+    }
+    if np is not None
+    else {}
+)
 
 
 def dtype_for_vocab(vocab_size: int) -> str:
@@ -259,4 +263,3 @@ def load_meta(data_dir: str | Path) -> dict:
             f"{meta_path} not found — run `cafezin-lm prepare --out {data_dir}` first"
         )
     return json.loads(meta_path.read_text(encoding="utf-8"))
-

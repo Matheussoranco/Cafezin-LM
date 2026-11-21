@@ -104,9 +104,7 @@ def mine_candidate_tokens(
     return unique_candidates
 
 
-def measure_tokenization_stats(
-    tokenizer: Tokenizer, texts: list[str]
-) -> dict[str, float]:
+def measure_tokenization_stats(tokenizer: Tokenizer, texts: list[str]) -> dict[str, float]:
     """Measure tokenization statistics on a list of texts.
 
     Returns:
