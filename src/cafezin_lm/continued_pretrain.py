@@ -161,6 +161,7 @@ def download_s5nano_checkpoint(
 
     # Also download all shards
     from .checkpoint import hf_files
+
     all_files = hf_files(repo, revision)
     safetensors_files = [f for f in all_files if f.endswith(".safetensors")]
 
@@ -189,6 +190,7 @@ def load_s5nano_into_base(
 
     # Load config from checkpoint
     from .checkpoint import import_config
+
     model_cfg = import_config(checkpoint_dir)
 
     # Build model on meta device first
@@ -200,6 +202,7 @@ def load_s5nano_into_base(
 
     # Recreate RoPE buffers (not in checkpoint)
     from .model import TextRotaryEmbedding, VisionRotaryEmbedding
+
     model.model.language_model.rotary_emb = TextRotaryEmbedding(model_cfg.text)
     model.model.visual.rotary_pos_emb = VisionRotaryEmbedding(model_cfg.vision)
 
@@ -225,8 +228,7 @@ def load_s5nano_into_base(
             print(f"Growing embeddings for {len(new_tokens)} new tokens...")
             grow_embeddings(model, original_tokenizer, extended_tokenizer, new_tokens)
             print(
-                f"Embeddings grown: {model.cfg.text.vocab_size} "
-                f"-> {extended_tokenizer.vocab_size}"
+                f"Embeddings grown: {model.cfg.text.vocab_size} -> {extended_tokenizer.vocab_size}"
             )
 
     return model, model_cfg
@@ -432,11 +434,7 @@ def continued_pretrain(
             if val_loss < state.best_val_loss:
                 state.best_val_loss = val_loss
 
-        if (
-            cfg.save_every > 0
-            and state.step < cfg.steps
-            and state.step % cfg.save_every == 0
-        ):
+        if cfg.save_every > 0 and state.step < cfg.steps and state.step % cfg.save_every == 0:
             save_checkpoint(model, optimizer, scheduler, state, cfg.to_train_config(), model_cfg)
 
     # Final checkpoint
@@ -493,6 +491,7 @@ def smoke_test_cpu(
         # Clean reload on CPU
         tok = Tokenizer(tokenizer_path)
         from .checkpoint import import_config, load_hf_checkpoint
+
         cfg = import_config(export_dir)
         model2 = build_model(cfg).to("cpu")
         load_hf_checkpoint(model2, export_dir, assign=True)
@@ -514,6 +513,6 @@ def continued_pretrain_from_config(config_path: str | Path) -> Path:
     model_cfg = None
     if "model" in data:
         from .config import ModelConfig
+
         model_cfg = ModelConfig.from_dict(data["model"])
     return continued_pretrain(cfg, model_cfg)
-

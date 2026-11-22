@@ -44,7 +44,9 @@ def test_tokenizer_stats_basic():
         with open(corpus_path, "w") as f:
             f.write("hello world\n\nhello there\n\nworld peace")
 
-        stats = measure_tokenization_stats(cafezin_tok, ["hello world", "hello there", "world peace"])
+        stats = measure_tokenization_stats(
+            cafezin_tok, ["hello world", "hello there", "world peace"]
+        )
         assert stats["total_chars"] > 0
         assert stats["total_tokens"] > 0
         assert stats["chars_per_token"] > 0
@@ -104,7 +106,9 @@ def test_extend_tokenizer_preserves_ids():
         # Check original IDs preserved
         extended_vocab = extended_tok._tokenizer.get_vocab(with_added_tokens=True)
         for token, tid in original_vocab.items():
-            assert extended_vocab[token] == tid, f"Token {token} ID changed from {tid} to {extended_vocab[token]}"
+            assert extended_vocab[token] == tid, (
+                f"Token {token} ID changed from {tid} to {extended_vocab[token]}"
+            )
 
         # Check new tokens added at the end
         for token in new_tokens:
@@ -241,7 +245,9 @@ def test_verify_round_trip():
         tok.pre_tokenizer = Whitespace()
         trainer = BpeTrainer(vocab_size=256, special_tokens=["[UNK]", "[EOS]"])
         # Use training data that won't produce the new tokens we'll add
-        tok.train_from_iterator(["hello world foo", "hello there bar", "world peace baz"], trainer=trainer)
+        tok.train_from_iterator(
+            ["hello world foo", "hello there bar", "world peace baz"], trainer=trainer
+        )
 
         tok_path = f"{tmp}/tok.json"
         tok.save(tok_path)
@@ -263,14 +269,17 @@ def test_verify_round_trip():
 
         # Copy original weights to extended model
         with torch.no_grad():
-            extended_model.model.language_model.embed_tokens.weight.data[:] = \
+            extended_model.model.language_model.embed_tokens.weight.data[:] = (
                 original_model.model.language_model.embed_tokens.weight.data
+            )
 
         # Grow embeddings on extended model
         grow_embeddings(extended_model, base_tok, extended_tok, new_tokens)
 
         test_texts = ["hello world foo", "hello there bar", "world peace baz"]
-        results = verify_round_trip(base_tok, extended_tok, original_model, extended_model, test_texts)
+        results = verify_round_trip(
+            base_tok, extended_tok, original_model, extended_model, test_texts
+        )
 
         assert results["original_token_ids_preserved"]
         assert results["encode_decode_consistency"]
@@ -311,6 +320,7 @@ def test_export_extended_checkpoint():
 
         # Export
         from cafezin_lm.tokenizer_extension import export_extended_checkpoint
+
         export_dir = f"{tmp}/export"
         manifest = export_extended_checkpoint(model, extended_tok, export_dir)
 
@@ -320,6 +330,7 @@ def test_export_extended_checkpoint():
 
         # Load back
         from cafezin_lm.tokenizer_extension import load_extended_checkpoint
+
         loaded_model, loaded_tok = load_extended_checkpoint(export_dir, CafezinLM)
 
         assert loaded_tok.vocab_size == extended_tok.vocab_size

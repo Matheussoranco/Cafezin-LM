@@ -193,7 +193,9 @@ def test_filter_and_deduplicate():
     ]
     prov = CorpusProvenance(corpus_name="test")
 
-    filtered, prov = filter_and_deduplicate(iter(documents), prov, min_doc_chars=100, max_doc_chars=100000)
+    filtered, prov = filter_and_deduplicate(
+        iter(documents), prov, min_doc_chars=100, max_doc_chars=100000
+    )
 
     # Should keep: "b" * 200, "c" * 200 (dedup keeps first), but "b" * 200 is duplicate
     # So: "b" * 200, "c" * 200 = 2 docs
@@ -246,8 +248,7 @@ def test_prepare_curriculum_data():
         )
 
         result = prepare_curriculum_data(
-            pt_train, pt_eval, multi_train, multi_eval,
-            tok, schedule, tmp_path / "curriculum_out"
+            pt_train, pt_eval, multi_train, multi_eval, tok, schedule, tmp_path / "curriculum_out"
         )
 
         assert "output_dir" in result
@@ -259,6 +260,7 @@ def test_prepare_curriculum_data():
 
         # Check meta contains curriculum info
         import json
+
         meta = json.loads((tmp_path / "curriculum_out" / "meta.json").read_text())
         assert "curriculum" in meta
         assert meta["curriculum"]["initial_pt_ratio"] == 0.5

@@ -20,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: "pip"
 
       - name: Install ruff
@@ -38,12 +38,12 @@ jobs:
         run: ruff format --check src/ tests/
 
   test:
-    name: Test Suite (Python ${{ matrix.python-version }})
+    name: Test Suite (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.12"]
         os: [ubuntu-latest, windows-latest]
 
     steps:
@@ -65,4 +65,4 @@ jobs:
 
       # Include end-to-end training on both supported operating systems.
       - name: Run tests
-        run: pytest -m "not gpu and not slow" --tb=short -q
+        run: python -m pytest -m "not gpu and not slow" --tb=short -q
